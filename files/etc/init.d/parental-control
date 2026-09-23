@@ -12,4 +12,6 @@ start_service() {
 
 stop_service() {
 	service_stop /usr/sbin/parental-control
+	/usr/sbin/nft 'destroy table inet parental_control' >/dev/null 2>&1 || /usr/bin/nft 'destroy table inet parental_control' >/dev/null 2>&1 || true
+	rm -f /var/run/parental-control.sock /var/run/parental-control.nft
 }
