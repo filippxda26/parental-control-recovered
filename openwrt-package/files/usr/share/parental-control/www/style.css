@@ -9,3 +9,4 @@ dialog{max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contai
   .dialog-actions{position:sticky;bottom:0;margin-top:14px;padding:10px 0 2px;background:var(--surface);z-index:1}
 }
 \n#hostname-list{display:grid;gap:8px}.hostname-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}.hostname-row button{white-space:nowrap}.add-hostname{width:100%;margin-top:8px}\n
+.disabled-field{opacity:.55}.disabled-field input{cursor:not-allowed}
