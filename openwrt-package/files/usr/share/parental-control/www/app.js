@@ -143,6 +143,8 @@ function deviceUiSignature(device){
     break_enabled:!!device.break_enabled,
     break_minutes:Number(device.break_minutes)||0,
     night_enabled:!!device.night_enabled,
+    speed_limit_enabled:!!device.speed_limit_enabled,
+    speed_limit_mbps:Number(device.speed_limit_mbps)||0,
     night_start:device.night_start||'',
     night_end:device.night_end||''
   });
@@ -186,6 +188,9 @@ function card(device){
   }
 
   const dl=article.querySelector('dl');
+  if(device.speed_limit_enabled&&!blocked){
+    dl.after(usageLine('speed-limit',`Скорость ограничена: до ${Number(device.speed_limit_mbps)||0} Мбит/с`));
+  }
   const reasons=reasonLabels(device);
   if(reasons.length){
     const reason=usageLine('block-reason',reasons.length===1?`Причина: ${reasons[0]}`:`Причины: ${reasons.join(', ')}`);
@@ -380,10 +385,10 @@ function openEditor(device=null){
   hostList.replaceChildren();
 
   if(device){
-    for(const key of ['name','mac','daily_limit_minutes','session_limit_minutes','break_minutes','night_start','night_end']){
+    for(const key of ['name','mac','daily_limit_minutes','session_limit_minutes','break_minutes','speed_limit_mbps','night_start','night_end']){
       if(form.elements[key]&&device[key]!==undefined)form.elements[key].value=device[key];
     }
-    for(const key of ['daily_limit_enabled','session_limit_enabled','break_enabled','night_enabled']){
+    for(const key of ['daily_limit_enabled','session_limit_enabled','break_enabled','night_enabled','speed_limit_enabled']){
       form.elements[key].checked=!!device[key];
     }
     const savedHostnames=(device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean);
@@ -395,6 +400,8 @@ function openEditor(device=null){
     form.elements.session_limit_enabled.checked=true;
     form.elements.break_enabled.checked=true;
     form.elements.night_enabled.checked=false;
+    form.elements.speed_limit_enabled.checked=false;
+    form.elements.speed_limit_mbps.value=5;
     hostnameEnabled.checked=true;
     hostRow();
   }
@@ -451,9 +458,11 @@ form.addEventListener('submit',async event=>{
     session_limit_enabled:form.elements.session_limit_enabled.checked,
     break_enabled:form.elements.break_enabled.checked,
     night_enabled:form.elements.night_enabled.checked,
+    speed_limit_enabled:form.elements.speed_limit_enabled.checked,
     daily_limit_minutes:Number(form.elements.daily_limit_minutes.value),
     session_limit_minutes:Number(form.elements.session_limit_minutes.value),
     break_minutes:Number(form.elements.break_minutes.value),
+    speed_limit_mbps:Number(form.elements.speed_limit_mbps.value),
     night_start:form.elements.night_start.value,
     night_end:form.elements.night_end.value
   };
