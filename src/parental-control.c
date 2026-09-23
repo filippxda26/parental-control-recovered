@@ -101,13 +101,14 @@ static int read_nft_counters(unsigned long long *inb,unsigned long long *outb){
         char *bp=strstr(line," bytes "); if(!bp) continue; unsigned long long bytes=strtoull(bp+7,NULL,10);
         c+=12; char *e=strchr(c,'\"'); if(!e)continue; *e=0; char *dir=strrchr(c,':'); if(!dir)continue; *dir++=0;
         int i=findid(c); if(i<0)continue; if(!strcmp(dir,"in"))inb[i]=bytes; else if(!strcmp(dir,"out"))outb[i]=bytes; else continue; found=1;
-    } pclose(f); return found;
+    } int rc=pclose(f);if(rc!=0)return-1;return found;
 }
 static int is_blocked(json_object*d,int i){if(!bval(d,"enabled",1))return 0;long long lim=(long long)ival(d,"daily_limit_minutes",0)*60+bonus_minutes[i]*60;return manual[i]||(!temporary_unblock[i]&&(night(d)||(bval(d,"break_enabled",0)&&break_active[i]&&time(NULL)<brk_until[i])||(bval(d,"daily_limit_enabled",0)&&lim>0&&used_seconds[i]>=lim)));}
 static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=time(NULL);if(now_sync-last_dhcp_sync>=2){sync_dhcp_macs();last_dhcp_sync=now_sync;}
     static time_t last=0; time_t now=time(NULL); if(!last){last=now;return;} int dt=(int)(now-last); if(dt<1)return; if(dt>60)dt=1; last=now;
     char today[16]; date_now(today); if(strcmp(today,reset_date))reset_today_all();
     unsigned long long inb[128],outb[128]; int have=read_nft_counters(inb,outb); json_object*a=arr(); int changed=0, rules_changed=0;
+    if(have<0){nft_dirty=1;have=0;}
     for(int i=0;i<(int)json_object_array_length(a)&&i<128;i++){
         json_object*d=json_object_array_get_idx(a,i); if(break_active[i]&&now>=brk_until[i]){break_active[i]=0;brk_until[i]=0;session_seconds[i]=0;changed=rules_changed=1;}
         int before=is_blocked(d,i),break_enabled=bval(d,"break_enabled",0),cycle=bval(d,"session_limit_enabled",0)&&break_enabled,active=0;
