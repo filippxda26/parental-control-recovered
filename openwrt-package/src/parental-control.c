@@ -62,7 +62,7 @@ static void load_state(void){
             last_active[i]=0;
             previous_inbound[i]=previous_outbound[i]=0;
             counters_seen[i]=0;
-            break_active[i]=brk_until[i]>0&&break_left(i)>0;
+            break_active[i]=brk_until[i]>0&&brk_until_mono[i]>monotonic_now();
         }
         json_object_put(j);return;
     }
