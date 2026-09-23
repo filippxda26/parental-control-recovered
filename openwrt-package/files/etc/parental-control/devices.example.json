@@ -12,7 +12,7 @@
       "daily_limit_enabled": false,
       "session_limit_enabled": true,
       "break_enabled": true,
-      "idle_timeout_seconds": 15,
+      "idle_timeout_seconds": 300,
       "activity_threshold_bytes": 4096,
       "night_enabled": false,
       "night_start": "22:00",
