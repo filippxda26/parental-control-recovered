@@ -26,7 +26,7 @@ static int counters_seen[128], blocked_cache[128], nft_dirty=1; static time_t la
 static char reset_date[16]="";
 static void ensure_varlib(void){mkdir("/var/lib",0755);mkdir("/var/lib/parental-control",0755);}
 static void date_now(char out[16]){time_t t=time(NULL);struct tm z;localtime_r(&t,&z);strftime(out,16,"%F",&z);}
-static ssize_t read_http_request(int fd,char*b,size_t cap){size_t used=0,need=0;while(used+1<cap){ssize_t r=read(fd,b+used,cap-used-1);if(r<0){if(errno==EINTR)continue;return-1;}if(!r)break;used+=(size_t)r;b[used]=0;char*sep=strstr(b,"\r\n\r\n");if(!sep)continue;size_t header_len=(size_t)(sep+4-b);if(!need){size_t body_len=0;char*cl=strcasestr(b,"Content-Length:");if(cl&&cl<sep){cl+=15;while(*cl==' '||*cl=='\t')cl++;char*end=NULL;unsigned long long v=strtoull(cl,&end,10);if(end==cl||v>cap-1-header_len)return-2;body_len=(size_t)v;}need=header_len+body_len;}if(used>=need)return(ssize_t)used;}return used?(ssize_t)used:-1;}
+static ssize_t read_http_request(int fd,char*b,size_t cap){size_t used=0,need=0;while(used+1<cap){ssize_t r=read(fd,b+used,cap-used-1);if(r<0){if(errno==EINTR)continue;return-1;}if(!r)return-1;used+=(size_t)r;b[used]=0;char*sep=strstr(b,"\r\n\r\n");if(!sep)continue;size_t header_len=(size_t)(sep+4-b);if(!need){size_t body_len=0;char*cl=strcasestr(b,"Content-Length:");if(cl&&cl<sep){cl+=15;while(*cl==' '||*cl=='\t')cl++;char*end=NULL;unsigned long long v=strtoull(cl,&end,10);if(end==cl||v>cap-1-header_len)return-2;body_len=(size_t)v;}need=header_len+body_len;}if(used>=need)return(ssize_t)used;}return-2;}
 static void save_state(void){
     ensure_varlib();
     json_object *j=state_snapshot();
