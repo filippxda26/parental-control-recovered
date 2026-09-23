@@ -1,0 +1,22 @@
+{
+  "devices": [
+    {
+      "id": "nadia-tablet",
+      "name": "Nadia tablet",
+      "hostnames": ["SM-T500", "android-tablet", "nadia-tablet"],
+      "mac": "ee:93:2d:39:9d:ad",
+      "enabled": true,
+      "daily_limit_minutes": 120,
+      "session_limit_minutes": 60,
+      "break_minutes": 60,
+      "daily_limit_enabled": false,
+      "session_limit_enabled": true,
+      "break_enabled": true,
+      "idle_timeout_seconds": 300,
+      "activity_threshold_bytes": 4096,
+      "night_enabled": false,
+      "night_start": "22:00",
+      "night_end": "08:00"
+    }
+  ]
+}

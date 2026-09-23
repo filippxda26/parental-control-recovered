@@ -1,0 +1,43 @@
+name: Build parental-control
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libjson-c-dev
+
+      - name: Build
+        run: make clean all
+
+      - name: Show binaries
+        run: |
+          file parental-control parental-control-web
+          ls -lh parental-control parental-control-web
+
+      - name: Package test binaries
+        run: |
+          mkdir -p artifact
+          cp parental-control parental-control-web artifact/
+          cp README.md artifact/
+          tar -czf parental-control-linux-x86_64.tar.gz -C artifact .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: parental-control-linux-x86_64
+          path: parental-control-linux-x86_64.tar.gz
+          if-no-files-found: error
