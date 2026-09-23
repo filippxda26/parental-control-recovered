@@ -26,7 +26,26 @@ jobs:
       - name: Install host tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential curl zstd rsync file gawk gettext libncurses-dev python3
+          sudo apt-get install -y build-essential curl zstd rsync file gawk gettext libncurses-dev python3 libjson-c-dev nodejs
+
+      - name: Native lint and compile checks
+        run: |
+          cmp src/parental-control.c openwrt-package/src/parental-control.c
+          cmp src/parental-control-web.c openwrt-package/src/parental-control-web.c
+          diff -qr files openwrt-package/files
+          node --check files/usr/share/parental-control/www/app.js
+          python3 -m json.tool files/etc/parental-control/settings.json >/dev/null
+          python3 -m json.tool files/etc/parental-control/devices.default.json >/dev/null
+          python3 -m json.tool files/etc/parental-control/devices.example.json >/dev/null
+          python3 -m json.tool files/usr/share/parental-control/www/manifest.json >/dev/null
+          sh -n files/etc/init.d/parental-control
+          sh -n files/etc/init.d/parental-control-web
+          sh -n test-openwrt/check-api.sh
+          sh -n test-openwrt/prepare-test.sh
+          sh -n test-openwrt/run-test.sh
+          sh -n test-openwrt/stop-and-restore.sh
+          make clean
+          make CFLAGS="-O2 -Wall -Wextra -Werror"
 
       - name: Download and verify OpenWrt SDK
         run: |
