@@ -134,6 +134,7 @@ function deviceUiSignature(device){
     block_reason:device.block_reason||'',
     block_reasons:device.block_reasons||[],
     manual_blocked:!!device.manual_blocked,
+    temporary_unblock:!!device.temporary_unblock,
     break_active:!!device.break_active,
     daily_limit_enabled:!!device.daily_limit_enabled,
     daily_limit_minutes:Number(device.daily_limit_minutes)||0,
@@ -161,6 +162,7 @@ function card(device){
   const blocked=!!device.blocked;
   const night=hasNight(device);
   const manual=!!device.manual_blocked;
+  const temporary=!!device.temporary_unblock;
   const cycle=!!device.session_limit_enabled&&!!device.break_enabled;
 
   $('.dot',article).classList.toggle('offline',!device.ip);
@@ -173,6 +175,9 @@ function card(device){
   if(!enabled){
     access.textContent='Контроль отключён';
     access.className='access';
+  }else if(temporary){
+    access.textContent='Временно разрешён';
+    access.className='access allowed';
   }else{
     access.textContent=blocked?'Доступ заблокирован':'Интернет разрешён';
     access.className='access '+(blocked?'blocked':'allowed');
@@ -218,6 +223,9 @@ function card(device){
   }else if(manual){
     action.textContent='Вернуть доступ';
     action.onclick=()=>command(device.id,'unblock');
+  }else if(temporary){
+    action.textContent='Вернуть ограничения';
+    action.onclick=()=>command(device.id,'reset_temporary_state');
   }else if(night){
     action.hidden=true;
   }else{
