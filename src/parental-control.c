@@ -26,6 +26,7 @@ static int counters_seen[128], blocked_cache[128], nft_dirty=1; static time_t la
 static char reset_date[16]="";
 static void ensure_varlib(void){mkdir("/var/lib",0755);mkdir("/var/lib/parental-control",0755);}
 static void date_now(char out[16]){time_t t=time(NULL);struct tm z;localtime_r(&t,&z);strftime(out,16,"%F",&z);}
+static time_t monotonic_now(void){struct timespec ts;if(clock_gettime(CLOCK_MONOTONIC,&ts)==0)return ts.tv_sec;return time(NULL);}
 static ssize_t read_http_request(int fd,char*b,size_t cap){size_t used=0,need=0;while(used+1<cap){ssize_t r=read(fd,b+used,cap-used-1);if(r<0){if(errno==EINTR)continue;return-1;}if(!r)return-1;used+=(size_t)r;b[used]=0;char*sep=strstr(b,"\r\n\r\n");if(!sep)continue;size_t header_len=(size_t)(sep+4-b);if(!need){size_t body_len=0;char*cl=strcasestr(b,"Content-Length:");if(cl&&cl<sep){cl+=15;while(*cl==' '||*cl=='\t')cl++;char*end=NULL;unsigned long long v=strtoull(cl,&end,10);if(end==cl||v>cap-1-header_len)return-2;body_len=(size_t)v;}need=header_len+body_len;}if(used>=need)return(ssize_t)used;}return-2;}
 static void save_state(void){
     ensure_varlib();
@@ -55,10 +56,9 @@ static void load_state(void){
             manual[i]=bval(o,"manual_block",0);
             temporary_unblock[i]=bval(o,"temporary_unblock",0);
             bonus_minutes[i]=ival(o,"bonus_minutes",0);
-            last_active[i]=(time_t)json_object_get_int64(json_object_object_get(o,"last_active"));
-            previous_inbound[i]=(unsigned long long)json_object_get_int64(json_object_object_get(o,"previous_inbound"));
-            previous_outbound[i]=(unsigned long long)json_object_get_int64(json_object_object_get(o,"previous_outbound"));
-            counters_seen[i]=bval(o,"counters_seen",0);
+            last_active[i]=0;
+            previous_inbound[i]=previous_outbound[i]=0;
+            counters_seen[i]=0;
             break_active[i]=brk_until[i]>time(NULL);
         }
         json_object_put(j);return;
@@ -107,7 +107,7 @@ static int read_nft_counters(unsigned long long *inb,unsigned long long *outb){
 }
 static int is_blocked(json_object*d,int i){if(!bval(d,"enabled",1))return 0;long long lim=(long long)ival(d,"daily_limit_minutes",0)*60+bonus_minutes[i]*60;return manual[i]||(!temporary_unblock[i]&&(night(d)||(bval(d,"break_enabled",0)&&break_active[i]&&time(NULL)<brk_until[i])||(bval(d,"daily_limit_enabled",0)&&lim>0&&used_seconds[i]>=lim)));}
 static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=time(NULL);if(now_sync-last_dhcp_sync>=2){sync_dhcp_macs();last_dhcp_sync=now_sync;}
-    static time_t last=0; time_t now=time(NULL); if(!last){last=now;return;} int dt=(int)(now-last); if(dt<1)return; if(dt>60)dt=1; last=now;
+    static time_t last_mono=0; time_t mono=monotonic_now(),now=time(NULL); if(!last_mono){last_mono=mono;return;} int dt=(int)(mono-last_mono); if(dt<1)return; if(dt>60)dt=1; last_mono=mono;
     char today[16]; date_now(today); if(strcmp(today,reset_date))reset_today_all();
     unsigned long long inb[128],outb[128]; int have=read_nft_counters(inb,outb); json_object*a=arr(); int changed=0, rules_changed=0;
     if(have<0){nft_dirty=1;have=0;}
@@ -117,11 +117,11 @@ static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=time(NULL)
         if(!cycle&&session_seconds[i]){session_seconds[i]=0;changed=1;}
         if(!break_enabled&&(break_active[i]||brk_until[i])){break_active[i]=0;brk_until[i]=0;changed=1;if(before)rules_changed=1;}
         if(have){
-            if(counters_seen[i]){unsigned long long di=inb[i]>=previous_inbound[i]?inb[i]-previous_inbound[i]:inb[i]; unsigned long long do_=outb[i]>=previous_outbound[i]?outb[i]-previous_outbound[i]:outb[i]; unsigned long long threshold=(unsigned long long)ival(d,"activity_threshold_bytes",4096); if(!before&&di+do_>=threshold){active=1;last_active[i]=now;}}
+            if(counters_seen[i]){unsigned long long di=inb[i]>=previous_inbound[i]?inb[i]-previous_inbound[i]:inb[i]; unsigned long long do_=outb[i]>=previous_outbound[i]?outb[i]-previous_outbound[i]:outb[i]; unsigned long long threshold=(unsigned long long)ival(d,"activity_threshold_bytes",4096); if(!before&&di+do_>=threshold){active=1;last_active[i]=mono;}}
             else {counters_seen[i]=1;}
             previous_inbound[i]=inb[i]; previous_outbound[i]=outb[i]; changed=1;
         }
-        int idle=ival(d,"idle_timeout_seconds",300); if(!before&&!active&&last_active[i]&&idle>0&&now-last_active[i]<=idle)active=1;
+        int idle=ival(d,"idle_timeout_seconds",300); if(!before&&!active&&last_active[i]&&idle>0&&mono-last_active[i]<=idle)active=1;
         if(!bval(d,"enabled",1))active=0;
         if(active&&!before){used_seconds[i]+=dt;changed=1;if(cycle){session_seconds[i]+=dt;int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim){break_active[i]=1;brk_until[i]=now+ival(d,"break_minutes",0)*60;changed=rules_changed=1;}}}
         int after=is_blocked(d,i); if(after!=before||after!=blocked_cache[i])rules_changed=1;
