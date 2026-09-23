@@ -1,124 +1,448 @@
-const $=(s,r=document)=>r.querySelector(s),devices=$('#devices'),dialog=$('#editor'),form=$('#form');
-let socket=null,socketPromise=null,socketSeq=1,socketReconnect=null;
-const socketPending=new Map();
-function socketUrl(){return `${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`}
+const $=(selector,root=document)=>root.querySelector(selector);
+const devices=$('#devices'),dialog=$('#editor'),form=$('#form');
+let socket=null,socketPromise=null,socketSeq=1,reconnectTimer=null,editing=null,latest=[];
+
+function socketUrl(){
+  return `${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`;
+}
+
+function scheduleReconnect(){
+  clearTimeout(reconnectTimer);
+  if(document.visibilityState!=='visible')return;
+  reconnectTimer=setTimeout(()=>connectSocket().catch(()=>{}),1000);
+}
+
 function connectSocket(){
-  if(socket&&socket.readyState===WebSocket.OPEN)return Promise.resolve(socket);
+  if(socket?.readyState===WebSocket.OPEN)return Promise.resolve(socket);
   if(socketPromise)return socketPromise;
   socketPromise=new Promise((resolve,reject)=>{
-    const ws=new WebSocket(socketUrl());socket=ws;
-    ws.onopen=()=>{socketPromise=null;$('#service').textContent='Служба работает';resolve(ws)};
+    const ws=new WebSocket(socketUrl());
+    socket=ws;
+    const timeout=setTimeout(()=>{
+      if(ws.readyState!==WebSocket.OPEN){
+        try{ws.close()}catch{}
+        reject(Error('Не удалось подключить WebSocket'));
+      }
+    },5000);
+    ws.onopen=()=>{
+      clearTimeout(timeout);
+      clearTimeout(reconnectTimer);
+      socketPromise=null;
+      $('#service').textContent='Служба работает';
+      resolve(ws);
+    };
     ws.onmessage=event=>{
-      let message;try{message=JSON.parse(event.data)}catch{return}
-      if(message.type==='state'&&message.data){renderState(message.data);return}
+      let message;
+      try{message=JSON.parse(event.data)}catch{return}
+      if(message.type==='state'&&message.data){
+        renderState(message.data);
+        return;
+      }
       if(message.type!=='response')return;
-      const pending=socketPending.get(message.id);if(!pending)return;
-      socketPending.delete(message.id);clearTimeout(pending.timer);
+      const pending=socketPending.get(message.id);
+      if(!pending)return;
+      socketPending.delete(message.id);
+      clearTimeout(pending.timer);
       const data=message.data||{};
-      if(Number(message.status)>=400||data.success===false)pending.reject(Error(data.message||'Служба временно недоступна'));
-      else pending.resolve(data);
+      if(Number(message.status)>=400||data.success===false){
+        pending.reject(Error(data.message||'Служба временно недоступна'));
+      }else{
+        pending.resolve(data);
+      }
     };
     ws.onerror=()=>{};
     ws.onclose=()=>{
-      socketPromise=null;if(socket===ws)socket=null;
-      for(const pending of socketPending.values()){clearTimeout(pending.timer);pending.reject(Error('WebSocket отключён'))}
-      socketPending.clear();$('#service').textContent='Служба недоступна';
-      clearTimeout(socketReconnect);socketReconnect=setTimeout(()=>connectSocket().catch(()=>{}),1000);
+      clearTimeout(timeout);
+      socketPromise=null;
+      if(socket===ws)socket=null;
+      for(const pending of socketPending.values()){
+        clearTimeout(pending.timer);
+        pending.reject(Error('WebSocket отключён'));
+      }
+      socketPending.clear();
+      $('#service').textContent='Служба недоступна';
+      scheduleReconnect();
     };
-    setTimeout(()=>{if(ws.readyState!==WebSocket.OPEN){try{ws.close()}catch{};reject(Error('Не удалось подключить WebSocket'))}},5000);
   });
   return socketPromise;
 }
-const api=async(path,options={})=>{
+
+const socketPending=new Map();
+
+async function api(path,options={}){
   const ws=await connectSocket(),id=socketSeq++;
   let body;
-  if(options.body!==undefined&&options.body!==''){try{body=typeof options.body==='string'?JSON.parse(options.body):options.body}catch{body=options.body}}
-  const message={id,method:options.method||'GET',path};if(body!==undefined)message.body=body;
+  if(options.body!==undefined&&options.body!==''){
+    try{body=typeof options.body==='string'?JSON.parse(options.body):options.body}
+    catch{body=options.body}
+  }
+  const message={id,method:options.method||'GET',path};
+  if(body!==undefined)message.body=body;
   return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{socketPending.delete(id);reject(Error('Тайм-аут WebSocket'))},15000);
+    const timer=setTimeout(()=>{
+      socketPending.delete(id);
+      reject(Error('Тайм-аут WebSocket'));
+    },15000);
     socketPending.set(id,{resolve,reject,timer});
-    try{ws.send(JSON.stringify(message))}catch(error){clearTimeout(timer);socketPending.delete(id);reject(error)}
-  });
-};
-const duration=value=>{const seconds=Math.max(0,Math.floor(Number(value)||0)),minutes=Math.floor(seconds/60),rest=seconds%60;return rest?`${minutes} мин. ${rest} с.`:`${minutes} мин.`};
-let editing=null,latest=[],timer=null;
-function hasNight(device){return Array.isArray(device.block_reasons)&&device.block_reasons.includes('night')}
-function sessionValue(device){return Math.max(0,Number(device.session_remaining_seconds)||0)}
-function updateTimers(){document.querySelectorAll('.card[data-id]').forEach(card=>{const active=card.dataset.breakActive==='true',night=card.dataset.night==='true',rest=Math.max(0,Number(card.dataset.breakRemaining)||0),session=Math.max(0,Number(card.dataset.sessionRemaining)||0),sessionLine=$('.session-left',card),status=$('.rest-status',card),restLeft=$('.rest-left',card),nightStatus=$('.night-status',card);if(sessionLine){sessionLine.hidden=active||night;if(!sessionLine.hidden)sessionLine.textContent=`До отдыха осталось: ${duration(session)}`;}if(status){status.hidden=night;status.textContent=active&&rest>0?'Отдых: активен':'Отдых: неактивен';}if(restLeft){restLeft.hidden=night||!(active&&rest>0);if(!restLeft.hidden)restLeft.textContent=`До окончания отдыха: ${duration(rest)}`;}if(nightStatus){nightStatus.hidden=!night;if(night)nightStatus.textContent=`Ночная блокировка до ${card.dataset.nightEnd||''}`;}});}
-async function command(id,action,body={}){try{await api(`/devices/${encodeURIComponent(id)}/${action}`,{method:'POST',body:JSON.stringify(body)});await refresh()}catch(error){alert(error.message)}}
-function card(device){const node=$('#card').content.cloneNode(true),article=node.querySelector('.card'),blocked=!!device.blocked||!!device.block_reason,night=hasNight(device),session=sessionValue(device);article.dataset.id=device.id;article.dataset.sessionRemaining=String(session);article.dataset.breakActive=String(!!device.break_active);article.dataset.breakRemaining=String(Math.max(0,Number(device.break_remaining_seconds)||0));article.dataset.night=String(night);article.dataset.nightEnd=device.night_end||'';$('.dot',node).classList.toggle('offline',!device.ip);$('h3',node).textContent=device.name;$('.host',node).textContent=(device.hostnames&&device.hostnames.length?device.hostnames:[device.hostname]).join(', ');$('.ip',node).textContent=device.ip?`${device.ip} · определён автоматически`:'не определён · устройство не подключено';$('.mac',node).textContent=device.mac;$('.access',node).textContent=blocked?'Доступ заблокирован':'Интернет разрешён';$('.access',node).className='access '+(blocked?'blocked':'allowed');const daily=$('.usage',node),progress=$('.progress',node);if(device.daily_limit_enabled){const used=device.used_seconds||0,limit=device.daily_limit_seconds||device.daily_limit_minutes*60;progress.firstElementChild.style.width=`${Math.min(100,used/limit*100)}%`;daily.textContent=`Сегодня использовано: ${duration(used)} из ${duration(limit)}`}else{progress.hidden=true;daily.hidden=true;const mode=document.createElement('p');mode.className='usage';mode.textContent=`Режим: ${device.session_limit_minutes} мин. пользования / ${device.break_minutes} мин. отдыха`;progress.after(mode)}const sessionLine=document.createElement('p'),status=document.createElement('p'),restLeft=document.createElement('p'),nightStatus=document.createElement('p');sessionLine.className='usage session-left';status.className='usage rest-status';restLeft.className='usage rest-left';nightStatus.className='usage night-status';nightStatus.hidden=!night;(daily.hidden?progress:daily).after(sessionLine,status,restLeft,nightStatus);$('.action',node).textContent=blocked?'Вернуть доступ':'Заблокировать';$('.action',node).onclick=()=>command(device.id,blocked?'unblock':'block');$('.bonus',node).onclick=()=>command(device.id,'bonus',{minutes:15});$('.break',node).textContent='Отдых';$('.break',node).onclick=()=>command(device.id,'break');$('.more',node).onclick=()=>openEditor(device);updateTimers();return article}
-function deviceUiSignature(device){
-  return JSON.stringify({
-    id:device.id,name:device.name,mac:device.mac,ip:device.ip||'',
-    hostnames:device.hostnames||[],blocked:!!device.blocked,
-    block_reason:device.block_reason||'',block_reasons:device.block_reasons||[],
-    manual_blocked:!!device.manual_blocked,break_active:!!device.break_active,
-    daily_limit_enabled:!!device.daily_limit_enabled,daily_limit_minutes:Number(device.daily_limit_minutes)||0,
-    session_limit_enabled:!!device.session_limit_enabled,session_limit_minutes:Number(device.session_limit_minutes)||0,
-    break_enabled:!!device.break_enabled,break_minutes:Number(device.break_minutes)||0,
-    night_enabled:!!device.night_enabled,night_start:device.night_start||'',night_end:device.night_end||''
+    try{ws.send(JSON.stringify(message))}
+    catch(error){
+      clearTimeout(timer);
+      socketPending.delete(id);
+      reject(error);
+    }
   });
 }
-function syncLiveCard(device){
-  const element=devices.querySelector(`.card[data-id="${CSS.escape(String(device.id))}"]`);
+
+function duration(value){
+  const seconds=Math.max(0,Math.floor(Number(value)||0));
+  const minutes=Math.floor(seconds/60),rest=seconds%60;
+  return rest?`${minutes} мин. ${rest} с.`:`${minutes} мин.`;
+}
+
+function reasonLabels(device){
+  const active=new Set(device.block_reasons||[]),reasons=[];
+  if(device.manual_blocked||active.has('manual'))reasons.push('заблокировано вручную');
+  if(active.has('night'))reasons.push('ночная блокировка');
+  if(device.break_active||active.has('break'))reasons.push('отдых');
+  if(active.has('daily_limit'))reasons.push('ограничение времени на день');
+  return reasons;
+}
+
+function hasNight(device){
+  return (device.block_reasons||[]).includes('night');
+}
+
+function deviceUiSignature(device){
+  return JSON.stringify({
+    id:device.id,
+    name:device.name,
+    hostname:device.hostname||'',
+    hostnames:device.hostnames||[],
+    mac:device.mac,
+    ip:device.ip||'',
+    enabled:device.enabled!==false,
+    blocked:!!device.blocked,
+    block_reason:device.block_reason||'',
+    block_reasons:device.block_reasons||[],
+    manual_blocked:!!device.manual_blocked,
+    break_active:!!device.break_active,
+    daily_limit_enabled:!!device.daily_limit_enabled,
+    daily_limit_minutes:Number(device.daily_limit_minutes)||0,
+    session_limit_enabled:!!device.session_limit_enabled,
+    session_limit_minutes:Number(device.session_limit_minutes)||0,
+    break_enabled:!!device.break_enabled,
+    break_minutes:Number(device.break_minutes)||0,
+    night_enabled:!!device.night_enabled,
+    night_start:device.night_start||'',
+    night_end:device.night_end||''
+  });
+}
+
+function usageLine(className,text=''){
+  const p=document.createElement('p');
+  p.className=`usage ${className}`;
+  p.textContent=text;
+  return p;
+}
+
+function card(device){
+  const article=$('#card').content.firstElementChild.cloneNode(true);
+  article.dataset.id=device.id;
+  const enabled=device.enabled!==false;
+  const blocked=!!device.blocked;
+  const night=hasNight(device);
+  const manual=!!device.manual_blocked;
+  const cycle=!!device.session_limit_enabled&&!!device.break_enabled;
+
+  $('.dot',article).classList.toggle('offline',!device.ip);
+  $('h3',article).textContent=device.name||'Без имени';
+  $('.host',article).textContent=(device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean).join(', ');
+  $('.ip',article).textContent=device.ip?`${device.ip} · определён автоматически`:'не определён · устройство не подключено';
+  $('.mac',article).textContent=device.mac||'—';
+
+  const access=$('.access',article);
+  if(!enabled){
+    access.textContent='Контроль отключён';
+    access.className='access';
+  }else{
+    access.textContent=blocked?'Доступ заблокирован':'Интернет разрешён';
+    access.className='access '+(blocked?'blocked':'allowed');
+  }
+
+  const dl=article.querySelector('dl');
+  const reasons=reasonLabels(device);
+  if(reasons.length){
+    const reason=usageLine('block-reason',reasons.length===1?`Причина: ${reasons[0]}`:`Причины: ${reasons.join(', ')}`);
+    dl.after(reason);
+  }
+
+  const progress=$('.progress',article),daily=$('.usage',article);
+  if(device.daily_limit_enabled){
+    progress.hidden=false;
+    daily.hidden=false;
+    const used=Math.max(0,Number(device.used_seconds)||0);
+    const limit=Math.max(0,Number(device.daily_limit_seconds)||Number(device.daily_limit_minutes||0)*60);
+    progress.firstElementChild.style.width=`${limit?Math.min(100,used/limit*100):0}%`;
+    daily.textContent=`Время на сегодня: использовано ${duration(used)} из ${duration(limit)}`;
+    daily.after(usageLine('daily-remaining',`Осталось на сегодня: ${duration(Math.max(0,Number(device.daily_remaining_seconds)||0))}`));
+  }else{
+    progress.hidden=true;
+    daily.hidden=true;
+  }
+
+  const anchor=article.querySelector('.daily-remaining')||daily;
+  if(cycle&&!manual&&!night){
+    const mode=usageLine('cycle-mode',`Режим: ${device.session_limit_minutes} мин. пользования / ${device.break_minutes} мин. отдыха`);
+    const session=usageLine('session-left');
+    const restStatus=usageLine('rest-status');
+    const restLeft=usageLine('rest-left');
+    anchor.after(mode,session,restStatus,restLeft);
+  }
+  if(night){
+    anchor.after(usageLine('night-status',`Ночная блокировка до ${device.night_end||''}`));
+  }
+
+  const action=$('.action',article);
+  if(!enabled){
+    action.hidden=true;
+  }else if(manual){
+    action.textContent='Вернуть доступ';
+    action.onclick=()=>command(device.id,'unblock');
+  }else if(night){
+    action.hidden=true;
+  }else{
+    action.textContent='Полностью заблокировать';
+    action.onclick=()=>command(device.id,'block');
+  }
+
+  $('.more',article).onclick=()=>openEditor(device);
+  syncLiveCard(device,article);
+  return article;
+}
+
+function syncLiveCard(device,element=null){
+  element=element||devices.querySelector(`.card[data-id="${CSS.escape(String(device.id))}"]`);
   if(!element)return;
-  const serverSession=Math.max(0,Number(device.session_remaining_seconds)||0),
-        serverBreak=Math.max(0,Number(device.break_remaining_seconds)||0);
-  element.dataset.sessionRemaining=String(serverSession);
-  element.dataset.breakRemaining=String(serverBreak);
-  element.dataset.breakActive=String(!!device.break_active);
-  element.dataset.night=String(hasNight(device));
-  element.dataset.nightEnd=device.night_end||'';
+
+  element.dataset.sessionRemaining=String(Math.max(0,Number(device.session_remaining_seconds)||0));
+  element.dataset.breakRemaining=String(Math.max(0,Number(device.break_remaining_seconds)||0));
+
   const progress=element.querySelector('.progress');
   if(device.daily_limit_enabled&&progress){
-    const used=Math.max(0,Number(device.used_seconds)||0),
-          limit=Math.max(0,Number(device.daily_limit_seconds)||Number(device.daily_limit_minutes||0)*60);
-    if(progress.firstElementChild)progress.firstElementChild.style.width=`${limit?Math.min(100,used/limit*100):0}%`;
-    const daily=progress.nextElementSibling;
-    if(daily?.classList.contains('usage'))daily.textContent=`Время на сегодня: использовано ${duration(used)} из ${duration(limit)}`;
+    const used=Math.max(0,Number(device.used_seconds)||0);
+    const limit=Math.max(0,Number(device.daily_limit_seconds)||Number(device.daily_limit_minutes||0)*60);
+    progress.firstElementChild.style.width=`${limit?Math.min(100,used/limit*100):0}%`;
+    const daily=element.querySelector('.usage:not(.daily-remaining):not(.block-reason):not(.cycle-mode):not(.session-left):not(.rest-status):not(.rest-left):not(.night-status)');
+    if(daily)daily.textContent=`Время на сегодня: использовано ${duration(used)} из ${duration(limit)}`;
     const remaining=element.querySelector('.daily-remaining');
     if(remaining)remaining.textContent=`Осталось на сегодня: ${duration(Math.max(0,Number(device.daily_remaining_seconds)||0))}`;
   }
-  updateTimers();
+
+  const session=element.querySelector('.session-left');
+  const restStatus=element.querySelector('.rest-status');
+  const restLeft=element.querySelector('.rest-left');
+  if(session)session.textContent=`До отдыха осталось: ${duration(device.session_remaining_seconds)}`;
+  if(restStatus)restStatus.textContent=device.break_active?'Отдых: активен':'Отдых: неактивен';
+  if(restLeft){
+    restLeft.hidden=!device.break_active;
+    if(device.break_active)restLeft.textContent=`До окончания отдыха: ${duration(device.break_remaining_seconds)}`;
+  }
 }
+
 function renderState(data){
-  const timestamp=Number(data.state_timestamp)||Math.floor(Date.now()/1000);
-  latest=(data.devices||[]).map(device=>({...device,state_timestamp:timestamp}));
+  latest=(data.devices||[]).map(device=>({...device,state_timestamp:Number(data.state_timestamp)||0}));
   const signature=latest.map(deviceUiSignature).join('|');
   if(signature!==window.__pcUiSignature){
     window.__pcUiSignature=signature;
     devices.replaceChildren(...latest.map(card));
   }else{
-    latest.forEach(syncLiveCard);
+    latest.forEach(device=>syncLiveCard(device));
   }
   $('#count-all').textContent=latest.length;
   $('#count-online').textContent=latest.filter(device=>device.ip).length;
-  $('#count-blocked').textContent=latest.filter(device=>device.blocked||device.block_reason).length;
+  $('#count-blocked').textContent=latest.filter(device=>device.blocked).length;
   $('#service').textContent='Служба работает';
 }
+
 async function refresh(){
   if(document.visibilityState!=='visible')return;
   try{renderState(await api('/state'))}
-  catch(error){$('#service').textContent='Служба недоступна';devices.innerHTML='<p>Не удалось получить данные. Проверьте службу parental-control.</p>'}
+  catch{
+    $('#service').textContent='Служба недоступна';
+    if(!latest.length)devices.innerHTML='<p>Не удалось получить данные. Проверьте службу parental-control.</p>';
+  }
 }
-const legacy=form.elements.hostname,hostList=document.createElement('div');hostList.id='hostname-list';legacy.parentNode.replaceChild(hostList,legacy);const addHost=document.createElement('button');addHost.type='button';addHost.className='secondary';addHost.textContent='+ Добавить Hostname';hostList.after(addHost);
-function hostRow(value=''){const row=document.createElement('div'),input=document.createElement('input'),remove=document.createElement('button');input.required=true;input.maxLength=127;input.value=value;input.placeholder='SM-T500';remove.type='button';remove.className='secondary';remove.textContent='Удалить';remove.onclick=()=>{if(hostList.children.length===1)return alert('У устройства должен остаться хотя бы один Hostname');row.remove()};row.append(input,remove);hostList.append(row)}addHost.onclick=()=>hostRow();
-function closeEditor(){document.activeElement?.blur();form.reset();hostList.replaceChildren();editing=null;if(dialog.open)dialog.close()}
-form.querySelectorAll('button[value="cancel"],.dialog-head .icon').forEach(button=>{button.type='button';button.onclick=closeEditor});dialog.addEventListener('cancel',event=>{event.preventDefault();closeEditor()});dialog.addEventListener('click',event=>{if(event.target===dialog)closeEditor()});
-function openEditor(device){editing=device||null;form.reset();hostList.replaceChildren();if(device)Object.entries(device).forEach(([key,value])=>{if(form.elements[key]&&!['hostname','hostnames'].includes(key)&&typeof value!=='boolean')form.elements[key].value=value});(device?.hostnames?.length?device.hostnames:[device?.hostname||'']).forEach(hostRow);if(!device)hostRow();for(const key of ['daily_limit_enabled','session_limit_enabled','break_enabled','night_enabled'])form.elements[key].checked=device?!!device[key]:key!=='daily_limit_enabled';$('#dialog-title').textContent=device?'Настройки устройства':'Новое устройство';dialog.showModal()}
-$('#add').onclick=()=>openEditor();$('.dialog-actions',form).insertAdjacentHTML('afterbegin','<button type="button" class="secondary" id="delete-device" hidden>Удалить устройство</button>');
-form.addEventListener('submit',async event=>{event.preventDefault();const body=Object.fromEntries(new FormData(form));body.hostnames=[...hostList.querySelectorAll('input')].map(input=>input.value.trim()).filter(Boolean);if(!body.hostnames.length||new Set(body.hostnames).size!==body.hostnames.length)return alert('Укажите хотя бы один уникальный Hostname');for(const key of ['daily_limit_enabled','session_limit_enabled','break_enabled','night_enabled'])body[key]=form.elements[key].checked;try{await api(editing?`/devices/${encodeURIComponent(editing.id)}`:'/devices',{method:editing?'PUT':'POST',body:JSON.stringify(body)});closeEditor();await refresh()}catch(error){alert(error.message)}});
-const deleteDevice=$('#delete-device');const baseOpenEditor=openEditor;openEditor=function(device){baseOpenEditor(device);deleteDevice.hidden=!device;deleteDevice.onclick=async()=>{if(!device||!confirm(`Удалить устройство «${device.name}»?`))return;try{await api(`/devices/${encodeURIComponent(device.id)}`,{method:'DELETE'});closeEditor();await refresh()}catch(error){alert(error.message)}}};
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(!socket||socket.readyState!==WebSocket.OPEN)connectSocket().catch(()=>{});else refresh()}});timer=setInterval(updateTimers,1000);$('#theme').onclick=()=>{const dark=document.documentElement.dataset.theme!=='dark';document.documentElement.dataset.theme=dark?'dark':'';localStorage.pcTheme=dark?'dark':'light'};if(localStorage.pcTheme==='dark')document.documentElement.dataset.theme='dark';
-const baseCardForCycleVisibility=card;card=function(device){const element=baseCardForCycleVisibility(device),cycleEnabled=!!device.session_limit_enabled&&!!device.break_enabled,night=hasNight(device),manual=!!device.manual_blocked,hideCycle=night||manual,session=element.querySelector('.session-left'),status=element.querySelector('.rest-status'),rest=element.querySelector('.rest-left'),progress=element.querySelector('.progress'),cycleUsage=progress&&progress.nextElementSibling,mode=[...element.querySelectorAll('.usage')].find(item=>item.textContent.startsWith('Режим:'));if(session){session.hidden=!cycleEnabled||hideCycle;session.style.display=cycleEnabled&&!hideCycle?'':'none'}if(status){status.hidden=!cycleEnabled||hideCycle;status.style.display=cycleEnabled&&!hideCycle?'':'none'}if(rest){rest.hidden=true;rest.style.display=cycleEnabled&&!hideCycle?'':'none'}if(mode){mode.hidden=!cycleEnabled||hideCycle;mode.style.display=cycleEnabled&&!hideCycle?'':'none'}if(cycleUsage&&cycleUsage!==session&&cycleUsage!==status&&cycleUsage!==rest){cycleUsage.hidden=hideCycle;cycleUsage.style.display=hideCycle?'none':''}if(progress){progress.hidden=hideCycle||progress.hidden;progress.style.display=hideCycle?'none':''}const nightStatus=element.querySelector('.night-status');if(nightStatus&&manual){nightStatus.hidden=true;nightStatus.style.display='none'}return element};
-const cardWithActions=card;card=function(device){const element=cardWithActions(device),manual=!!device.manual_blocked,action=element.querySelector('.action');if(action){action.textContent=manual?'Вернуть доступ':'Полностью заблокировать';action.onclick=()=>command(device.id,manual?'unblock':'block')}element.querySelector('.bonus')?.remove();element.querySelector('.break')?.remove();const daily=element.querySelector('.progress')?.nextElementSibling;if(device.daily_limit_enabled&&daily){const used=Math.max(0,Number(device.used_seconds)||0),limit=Math.max(0,Number(device.daily_limit_seconds)||Number(device.daily_limit_minutes||0)*60),remaining=Math.max(0,limit-used);daily.textContent=`Время на сегодня: использовано ${duration(used)} из ${duration(limit)}`;const dailyRemaining=document.createElement('p');dailyRemaining.className='usage daily-remaining';dailyRemaining.textContent=`Осталось на сегодня: ${duration(remaining)}`;daily.after(dailyRemaining)}const cause=document.createElement('p');cause.className='usage block-reason';if(manual)cause.textContent='Причина: заблокировано вручную';else if(device.break_active)cause.textContent='Причина: отдых';else if((device.block_reasons||[]).includes('daily_limit'))cause.textContent='Причина: дневное ограничение';else cause.hidden=true;element.querySelector('dl').after(cause);return element};
-const cardWithAbsoluteRest=card;card=function(device){const element=cardWithAbsoluteRest(device);element.dataset.breakRemaining=String(Math.max(0,Number(device.break_remaining_seconds)||0));return element};
-const cardWithAllReasons=card;card=function(device){const element=cardWithAllReasons(device),reasons=[],active=new Set(device.block_reasons||[]);if(device.manual_blocked||active.has('manual'))reasons.push('заблокировано вручную');if(active.has('night'))reasons.push('ночная блокировка');if(device.break_active||active.has('break'))reasons.push('отдых');if(active.has('daily_limit'))reasons.push('ограничение времени на день');const reason=element.querySelector('.block-reason');if(reason){if(reasons.length){reason.hidden=false;reason.innerHTML=`Причины:<br>${reasons.map(item=>`- ${item}`).join('<br>')}`}else reason.hidden=true}const nightStatus=element.querySelector('.night-status');if(nightStatus&&hasNight(device))nightStatus.innerHTML=`Ночная блокировка до ${device.night_end||''}`;const note=element.querySelector('.manual-note');if(note)note.remove();if(device.manual_blocked&&reasons.length>1){const explanation=document.createElement('p');explanation.className='usage manual-note';explanation.textContent='Будет снята только ручная блокировка. Отдых продолжится.';element.querySelector('.card-actions').after(explanation)}return element};
-const cardWithManualPriority=card;card=function(device){const element=cardWithManualPriority(device);if(device.manual_blocked){const reason=element.querySelector('.block-reason');if(reason){reason.hidden=false;reason.textContent='Причина: заблокировано вручную'}element.querySelector('.manual-note')?.remove()}return element};
-const cardWithReasonPriority=card;card=function(device){const element=cardWithReasonPriority(device),active=new Set(device.block_reasons||[]),reasons=[];if(device.manual_blocked||active.has('manual'))reasons.push('заблокировано вручную');if(active.has('night'))reasons.push('ночная блокировка');if(device.break_active||active.has('break'))reasons.push('отдых');if(active.has('daily_limit'))reasons.push('ограничение времени на день');const reason=element.querySelector('.block-reason');if(reason){if(reasons.length===1){reason.hidden=false;reason.textContent=`Причина: ${reasons[0]}`}else if(reasons.length>1){reason.hidden=false;reason.innerHTML=`Причины:<br>${reasons.map(item=>`- ${item}`).join('<br>')}`}else reason.hidden=true}const nightStatus=element.querySelector('.night-status');if(nightStatus&&active.has('night')){nightStatus.hidden=false;nightStatus.innerHTML=`Ночная блокировка до ${device.night_end||''}`}const action=element.querySelector('.action');if(action&&!device.manual_blocked&&active.has('night')){action.hidden=true;action.style.display='none'}return element};
-const cardWithFinalNightDisplay=card;card=function(device){const element=cardWithFinalNightDisplay(device),active=new Set(device.block_reasons||[]),nightStatus=element.querySelector('.night-status');if(nightStatus&&active.has('night')){nightStatus.hidden=false;nightStatus.style.display='';nightStatus.innerHTML=`Ночная блокировка до ${device.night_end||''}`}return element};
-function localizeUsageForm(){const daily=form.elements.daily_limit_enabled?.parentElement,session=form.elements.session_limit_enabled?.parentElement,rest=form.elements.break_enabled?.parentElement;if(daily&&daily.childNodes[1])daily.childNodes[1].nodeValue=' Ограничить время на день';if(session&&session.childNodes[1])session.childNodes[1].nodeValue=' Включить время пользования';if(rest&&rest.childNodes[1])rest.childNodes[1].nodeValue=' Включить время отдыха';const dailyLabel=form.elements.daily_limit_minutes?.parentElement,sessionLabel=form.elements.session_limit_minutes?.parentElement,restLabel=form.elements.break_minutes?.parentElement;if(dailyLabel&&dailyLabel.childNodes[1])dailyLabel.childNodes[1].nodeValue='Время на день, мин.';if(sessionLabel&&sessionLabel.childNodes[0])sessionLabel.childNodes[0].nodeValue='Время пользования, мин.';if(restLabel&&restLabel.childNodes[0])restLabel.childNodes[0].nodeValue='Время отдыха, мин.';const subtitle=$('.toolbar p');if(subtitle)subtitle.textContent='Лимиты, время отдыха и ночное расписание';if(window.innerWidth<=640)document.querySelectorAll('.grid').forEach(grid=>grid.style.gridTemplateColumns='1fr')}
-const localizedOpenEditor=openEditor;openEditor=function(device){localizedOpenEditor(device);localizeUsageForm()};localizeUsageForm();
-const finalCard=card;card=function(device){const element=finalCard(device),manual=!!device.manual_blocked,night=hasNight(device),nightStatus=element.querySelector('.night-status');if(manual){element.querySelectorAll('.daily-remaining').forEach(node=>node.remove());const reason=element.querySelector('.block-reason');if(reason){reason.hidden=false;reason.textContent='Причина: заблокировано вручную'}}if(nightStatus&&night){nightStatus.hidden=false;nightStatus.style.display='';nightStatus.textContent=`Ночная блокировка до ${device.night_end||''}`}return element};
-refresh();
 
+async function command(id,action,body={}){
+  try{
+    await api(`/devices/${encodeURIComponent(id)}/${action}`,{method:'POST',body});
+    await refresh();
+  }catch(error){
+    alert(error.message);
+  }
+}
+
+const legacyHostname=form.elements.hostname;
+const hostList=document.createElement('div');
+hostList.id='hostname-list';
+legacyHostname.parentNode.replaceChild(hostList,legacyHostname);
+const addHost=document.createElement('button');
+addHost.type='button';
+addHost.className='secondary add-hostname';
+addHost.textContent='+ Добавить Hostname';
+hostList.after(addHost);
+
+function hostRow(value=''){
+  const row=document.createElement('div');
+  row.className='hostname-row';
+  const input=document.createElement('input');
+  input.required=true;
+  input.maxLength=127;
+  input.value=value;
+  input.placeholder='SM-T500';
+  const remove=document.createElement('button');
+  remove.type='button';
+  remove.className='secondary';
+  remove.textContent='Удалить';
+  remove.onclick=()=>{
+    if(hostList.children.length<=1){
+      alert('У устройства должен остаться хотя бы один Hostname');
+      return;
+    }
+    row.remove();
+  };
+  row.append(input,remove);
+  hostList.append(row);
+}
+addHost.onclick=()=>hostRow();
+
+const deleteDevice=document.createElement('button');
+deleteDevice.type='button';
+deleteDevice.className='secondary';
+deleteDevice.textContent='Удалить устройство';
+deleteDevice.hidden=true;
+$('.dialog-actions',form).prepend(deleteDevice);
+
+function normalizeTime(input){
+  const match=input.value.trim().match(/^(\d{1,2}):(\d{1,2})$/);
+  if(!match)return;
+  const h=Number(match[1]),m=Number(match[2]);
+  if(h<24&&m<60)input.value=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+for(const name of ['night_start','night_end']){
+  form.elements[name].addEventListener('blur',()=>normalizeTime(form.elements[name]));
+}
+
+function closeEditor(){
+  document.activeElement?.blur();
+  form.reset();
+  hostList.replaceChildren();
+  editing=null;
+  if(dialog.open)dialog.close();
+}
+
+function openEditor(device=null){
+  editing=device;
+  form.reset();
+  hostList.replaceChildren();
+
+  if(device){
+    for(const key of ['name','mac','daily_limit_minutes','session_limit_minutes','break_minutes','night_start','night_end']){
+      if(form.elements[key]&&device[key]!==undefined)form.elements[key].value=device[key];
+    }
+    for(const key of ['daily_limit_enabled','session_limit_enabled','break_enabled','night_enabled']){
+      form.elements[key].checked=!!device[key];
+    }
+    (device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean).forEach(hostRow);
+    if(!hostList.children.length)hostRow();
+  }else{
+    form.elements.daily_limit_enabled.checked=false;
+    form.elements.session_limit_enabled.checked=true;
+    form.elements.break_enabled.checked=true;
+    form.elements.night_enabled.checked=false;
+    hostRow();
+  }
+
+  $('#dialog-title').textContent=device?'Настройки устройства':'Новое устройство';
+  deleteDevice.hidden=!device;
+  deleteDevice.onclick=async()=>{
+    if(!editing||!confirm(`Удалить устройство «${editing.name}»?`))return;
+    try{
+      await api(`/devices/${encodeURIComponent(editing.id)}`,{method:'DELETE'});
+      closeEditor();
+      await refresh();
+    }catch(error){
+      alert(error.message);
+    }
+  };
+  dialog.showModal();
+}
+
+$('#add').onclick=()=>openEditor();
+form.querySelectorAll('button[value="cancel"],.dialog-head .icon').forEach(button=>{
+  button.type='button';
+  button.onclick=closeEditor;
+});
+dialog.addEventListener('cancel',event=>{
+  event.preventDefault();
+  closeEditor();
+});
+dialog.addEventListener('click',event=>{
+  if(event.target===dialog)closeEditor();
+});
+
+form.addEventListener('submit',async event=>{
+  event.preventDefault();
+  normalizeTime(form.elements.night_start);
+  normalizeTime(form.elements.night_end);
+  if(!form.reportValidity())return;
+
+  const hostnames=[...hostList.querySelectorAll('input')].map(input=>input.value.trim()).filter(Boolean);
+  const normalized=hostnames.map(host=>host.toLowerCase());
+  if(!hostnames.length||new Set(normalized).size!==hostnames.length){
+    alert('Укажите хотя бы один уникальный Hostname');
+    return;
+  }
+
+  const body={
+    name:form.elements.name.value.trim(),
+    mac:form.elements.mac.value.trim().toLowerCase(),
+    hostnames,
+    daily_limit_enabled:form.elements.daily_limit_enabled.checked,
+    session_limit_enabled:form.elements.session_limit_enabled.checked,
+    break_enabled:form.elements.break_enabled.checked,
+    night_enabled:form.elements.night_enabled.checked,
+    daily_limit_minutes:Number(form.elements.daily_limit_minutes.value),
+    session_limit_minutes:Number(form.elements.session_limit_minutes.value),
+    break_minutes:Number(form.elements.break_minutes.value),
+    night_start:form.elements.night_start.value,
+    night_end:form.elements.night_end.value
+  };
+
+  try{
+    await api(editing?`/devices/${encodeURIComponent(editing.id)}`:'/devices',{
+      method:editing?'PUT':'POST',
+      body
+    });
+    closeEditor();
+    await refresh();
+  }catch(error){
+    alert(error.message);
+  }
+});
+
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'){
+    if(!socket||socket.readyState!==WebSocket.OPEN)connectSocket().catch(()=>{});
+    else refresh();
+  }
+});
+
+$('#theme').onclick=()=>{
+  const dark=document.documentElement.dataset.theme!=='dark';
+  document.documentElement.dataset.theme=dark?'dark':'';
+  localStorage.pcTheme=dark?'dark':'light';
+};
+if(localStorage.pcTheme==='dark')document.documentElement.dataset.theme='dark';
+
+connectSocket().then(refresh).catch(()=>scheduleReconnect());
