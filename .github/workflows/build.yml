@@ -42,6 +42,12 @@ jobs:
           ./scripts/feeds update base
           ./scripts/feeds install -p base libjson-c
 
+      - name: Verify package sources are synchronized
+        run: |
+          cmp src/parental-control.c openwrt-package/src/parental-control.c
+          cmp src/parental-control-web.c openwrt-package/src/parental-control-web.c
+          diff -qr files openwrt-package/files
+
       - name: Add parental-control package
         run: |
           rm -rf sdk/package/parental-control
