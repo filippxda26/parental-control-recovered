@@ -7,6 +7,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: openwrt-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-openwrt:
     runs-on: ubuntu-24.04
@@ -31,11 +35,6 @@ jobs:
           mkdir sdk
           tar --zstd -xf "$SDK_FILE" -C sdk --strip-components=1
 
-      - name: Prepare feeds
-        working-directory: sdk
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
 
       - name: Add parental-control package
         run: |
