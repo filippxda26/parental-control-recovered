@@ -36,6 +36,12 @@ jobs:
           tar --zstd -xf "$SDK_FILE" -C sdk --strip-components=1
 
 
+      - name: Prepare libjson-c feed only
+        working-directory: sdk
+        run: |
+          ./scripts/feeds update base
+          ./scripts/feeds install -p base libjson-c
+
       - name: Add parental-control package
         run: |
           rm -rf sdk/package/parental-control
@@ -50,7 +56,7 @@ jobs:
       - name: Build APK
         working-directory: sdk
         run: |
-          make package/libs/libjson-c/compile V=s -j"$(nproc)"
+          make package/feeds/base/libjson-c/compile V=s -j"$(nproc)"
           make package/parental-control/compile V=s -j"$(nproc)"
 
       - name: Collect and inspect APK
