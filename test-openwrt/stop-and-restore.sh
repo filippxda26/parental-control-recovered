@@ -2,6 +2,8 @@
 set -eu
 D=/tmp/parental-control-v10
 
+[ -f "$D/backup/.prepared" ] || { echo "No completed backup found in $D/backup; refusing to restore."; exit 1; }
+
 [ -f "$D/web.pid" ] && kill "$(cat "$D/web.pid")" 2>/dev/null || true
 [ -f "$D/daemon.pid" ] && kill "$(cat "$D/daemon.pid")" 2>/dev/null || true
 sleep 1
