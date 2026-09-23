@@ -55,6 +55,10 @@ static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=time(NULL)
             previous_inbound[i]=inb[i]; previous_outbound[i]=outb[i]; changed=1;
         }
         int idle=ival(d,"idle_timeout_seconds",0); if(!active&&last_active[i]&&idle>0&&now-last_active[i]<=idle)active=1;
+        /* The UI treats a device with a DHCP lease as online. Keep the
+           server-side usage/session clock running on the same definition,
+           so a page refresh never jumps back to an older timer value. */
+        char online_ip[64]; dhcp(d,online_ip,sizeof online_ip); if(*online_ip)active=1;
         if(active&&!before){used_seconds[i]+=dt;session_seconds[i]+=dt;changed=1;if(bval(d,"session_limit_enabled",0)&&bval(d,"break_enabled",0)){int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim){break_active[i]=1;brk_until[i]=now+ival(d,"break_minutes",0)*60;session_seconds[i]=0;changed=rules_changed=1;}}}
         int after=is_blocked(d,i); if(after!=before||after!=blocked_cache[i])rules_changed=1; blocked_cache[i]=after;
     }
