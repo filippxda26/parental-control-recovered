@@ -1,40 +1,50 @@
-## v6 update
+# parental-control-recovered
 
-See `RECOVERY_V6.md` for temporary-unblock state and DHCP hostname/MAC reconciliation.
+Восстановленная реализация родительского контроля для OpenWrt 25.12.x.
 
-## v4 update
+## Компоненты
 
-Traffic activity is now reconstructed from nftables byte counters, including `activity_threshold_bytes`, `idle_timeout_seconds`, `previous_inbound`, `previous_outbound`, `counters_seen`, and `last_active`. See `RECOVERY_V4.md`.
+- `src/parental-control.c` — основной daemon: устройства, учёт активности, дневные/сессионные лимиты, отдых, ночная и ручная блокировка, DHCP и nftables.
+- `src/parental-control-web.c` — web UI и WebSocket-шлюз к Unix socket daemon.
+- `files/usr/share/parental-control/www/` — интерфейс.
+- `files/etc/parental-control/devices.json` — пользовательский список устройств.
+- `/var/lib/parental-control/state.json` — runtime-состояние; формат совпадает с `/api/state` внутри daemon.
+- `/var/lib/parental-control/history.json` — история действий.
 
-# parental-control — recovered source
+## Web UI
 
-Functional reconstruction from the surviving OpenWrt binaries, web assets and configuration.
-It is **not byte-for-byte original source**. The original frontend is preserved unchanged.
+По умолчанию web-сервис слушает `0.0.0.0:5000`. Значения берутся из:
 
-## Components
-- `src/parental-control.c` — Unix-socket API daemon, device CRUD, DHCP lookup, night/manual/break blocking and nftables application.
-- `src/parental-control-web.c` — HTTP server on port 5000; serves the original frontend and proxies `/api/*` to the daemon.
-- `files/usr/share/parental-control/www/` — recovered original frontend.
-- `files/etc/init.d/` — recovered original procd init scripts.
-- `files/etc/parental-control/` — settings and a sanitized/recovery example device file.
+```json
+{"web_port":5000,"bind_address":"0.0.0.0"}
+```
 
-## Recovered API surface
-`GET /api/health`, `/api/status`, `/api/state`, `/api/devices`, `/api/discovered`; `POST /api/devices`; `PUT/DELETE /api/devices/<id>`; `POST /api/devices/<id>/{block,unblock,break,bonus}`.
+HTTP `/api/*` на web-сервере намеренно отключён. Интерфейс обращается к daemon через `/ws`; web-сервер проксирует разрешённые API-команды в Unix socket `/var/run/parental-control.sock`.
 
-The binary strings also show original support for daily/session accounting, history, reset-today and temporary state. Those deeper accounting paths are documented by the recovery evidence but are not yet reproduced exactly in this first reconstruction.
+## Состояние
 
-## Build
-Requires musl/OpenWrt toolchain and json-c. For a native test build: `make`.
+`state.json` создаётся сразу при запуске daemon и атомарно обновляется при изменении runtime-состояния. Список устройств берётся из `/etc/parental-control/devices.json`.
 
-## Second recovery pass
-`BINARY_API.md` and the two `*.strings.txt` files contain the additional forensic recovery of runtime persistence, daily/session accounting, nftables counters, reset-today, history, and temporary-state behavior. These are preserved separately so later implementation work can be checked against evidence from the original binaries.
+Пользовательские `devices.json` и `settings.json` объявлены conffiles пакета и должны сохраняться при обновлении APK.
 
-## v5 additions
-See `RECOVERY_V5.md`: DHCP discovery, persistent history endpoint/events, and stricter validation were added from binary evidence.
+## Сборка
 
-## v8 machine-code xref pass
+GitHub Actions собирает APK для OpenWrt 25.12.5 x86-64. Перед cross-build выполняются:
 
-See `XREF_V8.md`. This pass maps original ELF string addresses to executable references and confirms persistent `temporary_unblock`, the runtime-state field layout, DHCP MAC-update success/failure branches, history persistence, and nftables-result-aware manual blocking.
+- проверка синхронности `src/` и `openwrt-package/src/`;
+- проверка синхронности `files/`;
+- `node --check` для frontend JS;
+- проверка JSON и shell-скриптов;
+- нативная сборка C с `-Wall -Wextra -Werror`.
 
-## v10 safe test
-See `RECOVERY_V10.md` and `test-openwrt/`. v10 compiles cleanly with `-Wall -Wextra -Werror`. The test procedure runs reconstructed binaries from `/tmp` and does not replace the recovered originals in `/usr/sbin`.
+Для локальной нативной сборки нужен `json-c`:
+
+```sh
+make
+```
+
+## Безопасный тест на OpenWrt
+
+Скрипты в `test-openwrt/` запускают тестовые бинарники из `/tmp/parental-control-v10`, не перезаписывая `/usr/sbin/parental-control*`.
+
+`check-api.sh` проверяет загрузку UI, запрет старого HTTP API и WebSocket handshake.
