@@ -8,7 +8,7 @@ D=/tmp/parental-control-v10
 sleep 1
 "$D/parental-control" >"$D/daemon.log" 2>&1 & echo $! >"$D/daemon.pid"
 sleep 1
-"$D/parental-control-web" 127.0.0.1 >"$D/web.log" 2>&1 & echo $! >"$D/web.pid"
+"$D/parental-control-web" 127.0.0.1 5000 >"$D/web.log" 2>&1 & echo $! >"$D/web.pid"
 sleep 1
 echo "v10 test services started. Web is bound to 127.0.0.1:5000 only."
 echo "Check: wget -O- http://127.0.0.1:5000/api/health"
