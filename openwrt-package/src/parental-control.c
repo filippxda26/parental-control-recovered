@@ -17,7 +17,7 @@
 #define SOCK "/var/run/parental-control.sock"
 #define STATE "/var/lib/parental-control/state.json"
 #define HISTORY "/var/lib/parental-control/history.json"
-static json_object *arr(void); static int sync_dhcp_macs(void); static const char *sval(json_object*,const char*,const char*); static int ival(json_object*,const char*,int); static int bval(json_object*,const char*,int); static int findid(const char*); static void dhcp(json_object*,char*,size_t); static int night(json_object*); static int nft_apply(void);
+static json_object *arr(void); static json_object *okmsg(const char*); static int sync_dhcp_macs(void); static const char *sval(json_object*,const char*,const char*); static int ival(json_object*,const char*,int); static int bval(json_object*,const char*,int); static int findid(const char*); static void dhcp(json_object*,char*,size_t); static int night(json_object*); static int nft_apply(void); static void state_device(json_object*,json_object*,int); static json_object *state_snapshot(void);
 static json_object *root; static int manual[128],break_active[128],temporary_unblock[128]; static time_t brk_until[128];
 static long long used_seconds[128], session_seconds[128], bonus_minutes[128];
 static unsigned long long previous_inbound[128], previous_outbound[128];
@@ -25,8 +25,67 @@ static int counters_seen[128], blocked_cache[128]; static time_t last_active[128
 static char reset_date[16]="";
 static void ensure_varlib(void){mkdir("/var/lib",0755);mkdir("/var/lib/parental-control",0755);}
 static void date_now(char out[16]){time_t t=time(NULL);struct tm z;localtime_r(&t,&z);strftime(out,16,"%F",&z);}
-static void save_state(void){ensure_varlib();json_object*j=json_object_new_object(),*a=json_object_new_array();json_object_object_add(j,"reset_date",json_object_new_string(reset_date));for(int i=0;i<(int)json_object_array_length(arr());i++){json_object*o=json_object_new_object();json_object_object_add(o,"id",json_object_new_string(sval(json_object_array_get_idx(arr(),i),"id","")));json_object_object_add(o,"used_seconds",json_object_new_int64(used_seconds[i]));json_object_object_add(o,"session_seconds",json_object_new_int64(session_seconds[i]));json_object_object_add(o,"break_until",json_object_new_int64(brk_until[i]));json_object_object_add(o,"manual_block",json_object_new_boolean(manual[i]));json_object_object_add(o,"temporary_unblock",json_object_new_boolean(temporary_unblock[i]));json_object_object_add(o,"bonus_minutes",json_object_new_int64(bonus_minutes[i]));json_object_object_add(o,"last_active",json_object_new_int64(last_active[i]));json_object_object_add(o,"previous_inbound",json_object_new_int64((int64_t)previous_inbound[i]));json_object_object_add(o,"previous_outbound",json_object_new_int64((int64_t)previous_outbound[i]));json_object_object_add(o,"counters_seen",json_object_new_boolean(counters_seen[i]));json_object_array_add(a,o);}json_object_object_add(j,"states",a);json_object_to_file_ext(STATE,j,JSON_C_TO_STRING_PRETTY);json_object_put(j);}
-static void load_state(void){char today[16];date_now(today);json_object*j=json_object_from_file(STATE);if(!j){snprintf(reset_date,sizeof reset_date,"%s",today);return;}json_object*v,*a=NULL;if(json_object_object_get_ex(j,"reset_date",&v))snprintf(reset_date,sizeof reset_date,"%s",json_object_get_string(v));if(strcmp(reset_date,today)){snprintf(reset_date,sizeof reset_date,"%s",today);json_object_put(j);return;}if(json_object_object_get_ex(j,"states",&a)&&json_object_is_type(a,json_type_array))for(int x=0;x<(int)json_object_array_length(a);x++){json_object*o=json_object_array_get_idx(a,x);int i=findid(sval(o,"id",""));if(i<0)continue;used_seconds[i]=ival(o,"used_seconds",0);session_seconds[i]=ival(o,"session_seconds",0);brk_until[i]=(time_t)ival(o,"break_until",0);manual[i]=bval(o,"manual_block",0);temporary_unblock[i]=bval(o,"temporary_unblock",0);bonus_minutes[i]=ival(o,"bonus_minutes",0);last_active[i]=(time_t)json_object_get_int64(json_object_object_get(o,"last_active"));previous_inbound[i]=(unsigned long long)json_object_get_int64(json_object_object_get(o,"previous_inbound"));previous_outbound[i]=(unsigned long long)json_object_get_int64(json_object_object_get(o,"previous_outbound"));counters_seen[i]=bval(o,"counters_seen",0);break_active[i]=brk_until[i]>time(NULL);}json_object_put(j);}
+static void save_state(void){
+    ensure_varlib();
+    json_object *j=state_snapshot();
+    if(!j)return;
+    char tmp[256];snprintf(tmp,sizeof tmp,"%s.tmp",STATE);
+    if(json_object_to_file_ext(tmp,j,JSON_C_TO_STRING_PRETTY)==0)rename(tmp,STATE);
+    else unlink(tmp);
+    json_object_put(j);
+}
+static void load_state(void){
+    char today[16];date_now(today);
+    json_object*j=json_object_from_file(STATE);
+    if(!j){snprintf(reset_date,sizeof reset_date,"%s",today);return;}
+
+    /* Compatibility with the older internal state format. */
+    json_object*v=NULL,*a=NULL;
+    if(json_object_object_get_ex(j,"states",&a)&&json_object_is_type(a,json_type_array)){
+        if(json_object_object_get_ex(j,"reset_date",&v))snprintf(reset_date,sizeof reset_date,"%s",json_object_get_string(v));
+        if(strcmp(reset_date,today)){snprintf(reset_date,sizeof reset_date,"%s",today);json_object_put(j);return;}
+        for(int x=0;x<(int)json_object_array_length(a);x++){
+            json_object*o=json_object_array_get_idx(a,x);int i=findid(sval(o,"id",""));if(i<0)continue;
+            used_seconds[i]=ival(o,"used_seconds",0);
+            session_seconds[i]=ival(o,"session_seconds",0);
+            brk_until[i]=(time_t)json_object_get_int64(json_object_object_get(o,"break_until"));
+            manual[i]=bval(o,"manual_block",0);
+            temporary_unblock[i]=bval(o,"temporary_unblock",0);
+            bonus_minutes[i]=ival(o,"bonus_minutes",0);
+            last_active[i]=(time_t)json_object_get_int64(json_object_object_get(o,"last_active"));
+            previous_inbound[i]=(unsigned long long)json_object_get_int64(json_object_object_get(o,"previous_inbound"));
+            previous_outbound[i]=(unsigned long long)json_object_get_int64(json_object_object_get(o,"previous_outbound"));
+            counters_seen[i]=bval(o,"counters_seen",0);
+            break_active[i]=brk_until[i]>time(NULL);
+        }
+        json_object_put(j);return;
+    }
+
+    /* Current format: the same JSON object that /api/state returns. */
+    time_t saved_at=time(NULL);
+    if(json_object_object_get_ex(j,"state_timestamp",&v))saved_at=(time_t)json_object_get_int64(v);
+    struct tm z;localtime_r(&saved_at,&z);char saved_date[16];strftime(saved_date,sizeof saved_date,"%F",&z);
+    snprintf(reset_date,sizeof reset_date,"%s",today);
+    if(strcmp(saved_date,today)){json_object_put(j);return;}
+
+    if(json_object_object_get_ex(j,"devices",&a)&&json_object_is_type(a,json_type_array)){
+        for(int x=0;x<(int)json_object_array_length(a);x++){
+            json_object*o=json_object_array_get_idx(a,x);int i=findid(sval(o,"id",""));if(i<0)continue;
+            used_seconds[i]=ival(o,"used_seconds",0);
+            session_seconds[i]=ival(o,"session_used_seconds",0);
+            manual[i]=bval(o,"manual_blocked",0);
+            temporary_unblock[i]=bval(o,"temporary_unblock",0);
+            bonus_minutes[i]=ival(o,"bonus_minutes",0);
+            int ba=bval(o,"break_active",0),left=ival(o,"break_remaining_seconds",0);
+            break_active[i]=ba&&left>0;
+            brk_until[i]=break_active[i]?time(NULL)+left:0;
+            counters_seen[i]=0;
+            previous_inbound[i]=previous_outbound[i]=0;
+            last_active[i]=0;
+        }
+    }
+    json_object_put(j);
+}
 static void reset_today_all(void){char today[16];date_now(today);snprintf(reset_date,sizeof reset_date,"%s",today);memset(used_seconds,0,sizeof used_seconds);memset(session_seconds,0,sizeof session_seconds);memset(bonus_minutes,0,sizeof bonus_minutes);memset(break_active,0,sizeof break_active);memset(temporary_unblock,0,sizeof temporary_unblock);memset(brk_until,0,sizeof brk_until);save_state();}
 static int read_nft_counters(unsigned long long *inb,unsigned long long *outb){
     memset(inb,0,sizeof(unsigned long long)*128); memset(outb,0,sizeof(unsigned long long)*128);
@@ -55,10 +114,6 @@ static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=time(NULL)
             previous_inbound[i]=inb[i]; previous_outbound[i]=outb[i]; changed=1;
         }
         int idle=ival(d,"idle_timeout_seconds",0); if(!active&&last_active[i]&&idle>0&&now-last_active[i]<=idle)active=1;
-        /* The UI treats a device with a DHCP lease as online. Keep the
-           server-side usage/session clock running on the same definition,
-           so a page refresh never jumps back to an older timer value. */
-        char online_ip[64]; dhcp(d,online_ip,sizeof online_ip); if(*online_ip)active=1;
         if(active&&!before){used_seconds[i]+=dt;session_seconds[i]+=dt;changed=1;if(bval(d,"session_limit_enabled",0)&&bval(d,"break_enabled",0)){int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim){break_active[i]=1;brk_until[i]=now+ival(d,"break_minutes",0)*60;session_seconds[i]=0;changed=rules_changed=1;}}}
         int after=is_blocked(d,i); if(after!=before||after!=blocked_cache[i])rules_changed=1; blocked_cache[i]=after;
     }
@@ -74,7 +129,68 @@ static int bval(json_object *o,const char*k,int d){json_object*v;return json_obj
 static int findid(const char *id){json_object*a=arr();for(int i=0;i<(int)json_object_array_length(a);i++)if(!strcmp(sval(json_object_array_get_idx(a,i),"id",""),id))return i;return -1;}
 static void dhcp(json_object*d,char *ip,size_t ni){ip[0]=0;FILE*f=fopen("/tmp/dhcp.leases","r");if(!f)return;char line[512],mac[32],dip[64],host[128];const char *want=sval(d,"mac","");while(fgets(line,sizeof line,f)){long x;if(sscanf(line,"%ld %31s %63s %127s",&x,mac,dip,host)>=3&&!strcasecmp(mac,want)){snprintf(ip,ni,"%s",dip);break;}}fclose(f);}
 static int night(json_object*d){if(!bval(d,"night_enabled",0))return 0;int sh,sm,eh,em;if(sscanf(sval(d,"night_start","22:00"),"%d:%d",&sh,&sm)!=2||sscanf(sval(d,"night_end","08:00"),"%d:%d",&eh,&em)!=2)return 0;time_t t=time(NULL);struct tm z;localtime_r(&t,&z);int n=z.tm_hour*60+z.tm_min,a=sh*60+sm,b=eh*60+em;return a<=b?(n>=a&&n<b):(n>=a||n<b);}
-static void state_device(json_object*out,json_object*d,int i){json_object_object_add(out,"id",json_object_new_string(sval(d,"id","")));json_object_object_add(out,"name",json_object_new_string(sval(d,"name","")));json_object_object_add(out,"mac",json_object_new_string(sval(d,"mac","")));json_object *h;if(json_object_object_get_ex(d,"hostnames",&h))json_object_object_add(out,"hostnames",json_object_get(h));char ip[64];dhcp(d,ip,sizeof ip);if(*ip)json_object_object_add(out,"ip",json_object_new_string(ip));const char *keys[]={"daily_limit_minutes","session_limit_minutes","break_minutes","idle_timeout_seconds","activity_threshold_bytes","daily_limit_enabled","session_limit_enabled","break_enabled","night_enabled","night_start","night_end"};for(size_t k=0;k<sizeof(keys)/sizeof(keys[0]);k++){json_object*v;if(json_object_object_get_ex(d,keys[k],&v))json_object_object_add(out,keys[k],json_object_get(v));}int n=night(d),ba=break_active[i]&&time(NULL)<brk_until[i];int daily_limit=ival(d,"daily_limit_minutes",0)*60+(int)bonus_minutes[i]*60;int dl=bval(d,"daily_limit_enabled",0)&&daily_limit>0&&used_seconds[i]>=daily_limit;int blocked=manual[i]||(!temporary_unblock[i]&&(n||ba||dl));json_object_object_add(out,"manual_blocked",json_object_new_boolean(manual[i]));json_object_object_add(out,"break_active",json_object_new_boolean(ba));json_object_object_add(out,"break_remaining_seconds",json_object_new_int64(ba?brk_until[i]-time(NULL):0));json_object_object_add(out,"session_used_seconds",json_object_new_int64(session_seconds[i]));json_object_object_add(out,"session_limit_seconds",json_object_new_int(ival(d,"session_limit_minutes",60)*60));json_object_object_add(out,"session_remaining_seconds",json_object_new_int64((long long)ival(d,"session_limit_minutes",60)*60-session_seconds[i]>0?(long long)ival(d,"session_limit_minutes",60)*60-session_seconds[i]:0));json_object_object_add(out,"used_seconds",json_object_new_int64(used_seconds[i]));json_object_object_add(out,"last_active",json_object_new_int64(last_active[i]));json_object_object_add(out,"previous_inbound",json_object_new_int64((int64_t)previous_inbound[i]));json_object_object_add(out,"previous_outbound",json_object_new_int64((int64_t)previous_outbound[i]));json_object_object_add(out,"counters_seen",json_object_new_boolean(counters_seen[i]));json_object_object_add(out,"daily_limit_seconds",json_object_new_int(daily_limit));json_object_object_add(out,"daily_remaining_seconds",json_object_new_int64(daily_limit-used_seconds[i]>0?daily_limit-used_seconds[i]:0));json_object_object_add(out,"bonus_minutes",json_object_new_int64(bonus_minutes[i]));json_object_object_add(out,"temporary_unblock",json_object_new_boolean(temporary_unblock[i]));json_object_object_add(out,"blocked",json_object_new_boolean(blocked));json_object_object_add(out,"access_allowed",json_object_new_boolean(!blocked));json_object *rs=json_object_new_array();if(manual[i])json_object_array_add(rs,json_object_new_string("manual"));if(n&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("night"));if(ba&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("break"));if(dl&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("daily_limit"));json_object_object_add(out,"block_reasons",rs);if(blocked)json_object_object_add(out,"block_reason",json_object_new_string(manual[i]?"manual":n&&!temporary_unblock[i]?"night":ba&&!temporary_unblock[i]?"break":"daily_limit"));}
+static void state_device(json_object*out,json_object*d,int i){
+    json_object_object_add(out,"id",json_object_new_string(sval(d,"id","")));
+    json_object_object_add(out,"name",json_object_new_string(sval(d,"name","")));
+
+    json_object *h=NULL;
+    const char *hostname=sval(d,"hostname","");
+    if(json_object_object_get_ex(d,"hostnames",&h)&&json_object_is_type(h,json_type_array)){
+        if(!*hostname&&json_object_array_length(h)>0)hostname=json_object_get_string(json_object_array_get_idx(h,0));
+    }
+    json_object_object_add(out,"hostname",json_object_new_string(hostname));
+    if(h)json_object_object_add(out,"hostnames",json_object_get(h));
+    else {json_object*hs=json_object_new_array();if(*hostname)json_object_array_add(hs,json_object_new_string(hostname));json_object_object_add(out,"hostnames",hs);}
+
+    json_object_object_add(out,"mac",json_object_new_string(sval(d,"mac","")));
+    char ip[64];dhcp(d,ip,sizeof ip);if(*ip)json_object_object_add(out,"ip",json_object_new_string(ip));
+    json_object_object_add(out,"enabled",json_object_new_boolean(bval(d,"enabled",1)));
+
+    const char *keys[]={"daily_limit_minutes","session_limit_minutes","break_minutes","daily_limit_enabled","session_limit_enabled","break_enabled","night_enabled","night_start","night_end"};
+    for(size_t k=0;k<sizeof(keys)/sizeof(keys[0]);k++){json_object*v;if(json_object_object_get_ex(d,keys[k],&v))json_object_object_add(out,keys[k],json_object_get(v));}
+
+    int n=night(d),ba=break_active[i]&&time(NULL)<brk_until[i];
+    int daily_limit=ival(d,"daily_limit_minutes",0)*60+(int)bonus_minutes[i]*60;
+    int dl=bval(d,"daily_limit_enabled",0)&&daily_limit>0&&used_seconds[i]>=daily_limit;
+    int blocked=manual[i]||(!temporary_unblock[i]&&(n||ba||dl));
+    long long session_limit=(long long)ival(d,"session_limit_minutes",60)*60;
+    long long session_remaining=session_limit-session_seconds[i];if(session_remaining<0)session_remaining=0;
+    long long daily_remaining=(long long)daily_limit-used_seconds[i];if(daily_remaining<0)daily_remaining=0;
+
+    json_object_object_add(out,"used_seconds",json_object_new_int64(used_seconds[i]));
+    json_object_object_add(out,"daily_limit_seconds",json_object_new_int(daily_limit));
+    json_object_object_add(out,"daily_remaining_seconds",json_object_new_int64(daily_remaining));
+    json_object_object_add(out,"session_used_seconds",json_object_new_int64(session_seconds[i]));
+    json_object_object_add(out,"session_limit_seconds",json_object_new_int64(session_limit));
+    json_object_object_add(out,"session_remaining_seconds",json_object_new_int64(session_remaining));
+    json_object_object_add(out,"break_active",json_object_new_boolean(ba));
+    json_object_object_add(out,"break_remaining_seconds",json_object_new_int64(ba?brk_until[i]-time(NULL):0));
+    json_object_object_add(out,"bonus_minutes",json_object_new_int64(bonus_minutes[i]));
+    json_object_object_add(out,"temporary_unblock",json_object_new_boolean(temporary_unblock[i]));
+    json_object_object_add(out,"manual_blocked",json_object_new_boolean(manual[i]));
+    json_object_object_add(out,"blocked",json_object_new_boolean(blocked));
+    json_object_object_add(out,"access_allowed",json_object_new_boolean(!blocked));
+
+    if(blocked)json_object_object_add(out,"block_reason",json_object_new_string(manual[i]?"manual":n&&!temporary_unblock[i]?"night":ba&&!temporary_unblock[i]?"break":"daily_limit"));
+    json_object *rs=json_object_new_array();
+    if(manual[i])json_object_array_add(rs,json_object_new_string("manual"));
+    if(n&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("night"));
+    if(ba&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("break"));
+    if(dl&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("daily_limit"));
+    json_object_object_add(out,"block_reasons",rs);
+}
+static json_object *state_snapshot(void){
+    json_object*j=okmsg("ok"),*ds=json_object_new_array();
+    json_object*a=arr();
+    for(int i=0;i<(int)json_object_array_length(a);i++){
+        json_object*o=json_object_new_object();
+        state_device(o,json_object_array_get_idx(a,i),i);
+        json_object_array_add(ds,o);
+    }
+    json_object_object_add(j,"devices",ds);
+    json_object_object_add(j,"state_timestamp",json_object_new_int64(time(NULL)));
+    return j;
+}
 static int nft_apply(void){FILE*f=fopen("/tmp/parental-control.nft","w");if(!f)return -1;fprintf(f,"destroy table inet parental_control\nadd table inet parental_control\nadd chain inet parental_control pc_forward { type filter hook forward priority -5; policy accept; }\n");json_object*a=arr();for(int i=0;i<(int)json_object_array_length(a);i++){json_object*d=json_object_array_get_idx(a,i);int daily_limit=ival(d,"daily_limit_minutes",0)*60+(int)bonus_minutes[i]*60;int block=manual[i]||(!temporary_unblock[i]&&(night(d)||(break_active[i]&&time(NULL)<brk_until[i])||(bval(d,"daily_limit_enabled",0)&&daily_limit>0&&used_seconds[i]>=daily_limit)));const char*m=sval(d,"mac","");const char*id=sval(d,"id","");fprintf(f,"add rule inet parental_control pc_forward ether saddr %s counter comment \"pc:%s:out\"\n",m,id);fprintf(f,"add rule inet parental_control pc_forward ether daddr %s counter comment \"pc:%s:in\"\n",m,id);if(block){fprintf(f,"add rule inet parental_control pc_forward ether saddr %s drop comment \"pc:%s:forward-src\"\n",m,id);fprintf(f,"add rule inet parental_control pc_forward ether daddr %s drop comment \"pc:%s:forward-dst\"\n",m,id);}}fclose(f);int rc=system("/usr/sbin/nft -f /tmp/parental-control.nft >/dev/null 2>&1 || /usr/bin/nft -f /tmp/parental-control.nft >/dev/null 2>&1");return rc;}
 
 static int mac_valid(const char *m){unsigned x[6];char tail;return m&&sscanf(m,"%2x:%2x:%2x:%2x:%2x:%2x%c",&x[0],&x[1],&x[2],&x[3],&x[4],&x[5],&tail)==6;}
@@ -91,7 +207,7 @@ static void response(int c,int code,json_object*j){const char*b=json_object_to_j
 static json_object *okmsg(const char*m){json_object*j=json_object_new_object();json_object_object_add(j,"success",json_object_new_boolean(1));if(m)json_object_object_add(j,"message",json_object_new_string(m));return j;}
 static void handle(int c){char b[65536];ssize_t n=read(c,b,sizeof(b)-1);if(n<=0)return;b[n]=0;char method[8],path[512];if(sscanf(b,"%7s %511s",method,path)!=2)return;char *body=strstr(b,"\r\n\r\n");body=body?body+4:(char*)"";json_object*j=NULL;int code=200;
 if(!strcmp(path,"/api/health")||!strcmp(path,"/api/status")){j=okmsg("ok");json_object_object_add(j,"device_count",json_object_new_int(json_object_array_length(arr())));}
-else if(!strcmp(path,"/api/state")){j=okmsg(NULL);json_object*ds=json_object_new_array();for(int i=0;i<(int)json_object_array_length(arr());i++){json_object*o=json_object_new_object();state_device(o,json_object_array_get_idx(arr(),i),i);json_object_array_add(ds,o);}json_object_object_add(j,"devices",ds);json_object_object_add(j,"state_timestamp",json_object_new_int64(time(NULL)));}
+else if(!strcmp(path,"/api/state")){j=state_snapshot();}
 else if(!strcmp(path,"/api/devices")&&!strcmp(method,"GET")){j=okmsg(NULL);json_object_object_add(j,"devices",json_object_get(arr()));}
 else if(!strcmp(path,"/api/devices")&&!strcmp(method,"POST")){json_object*d=json_tokener_parse(body);const char*err=validate_device(d,0);if(err){j=okmsg(err);json_object_object_add(j,"success",json_object_new_boolean(0));code=400;if(d)json_object_put(d);}else if(known_mac(sval(d,"mac",""))){j=okmsg("duplicate device id or MAC");json_object_object_add(j,"success",json_object_new_boolean(0));code=409;json_object_put(d);}else{if(!json_object_object_get_ex(d,"id",NULL)){char id[64];snprintf(id,sizeof id,"device-%ld",(long)time(NULL));json_object_object_add(d,"id",json_object_new_string(id));}json_object_array_add(arr(),d);save();nft_apply();history_event(sval(d,"id",""),"device created");j=okmsg("device created");}}
 else if(!strcmp(path,"/api/discovered")){j=okmsg(NULL);json_object_object_add(j,"devices",discover_devices());}
