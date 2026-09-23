@@ -110,11 +110,11 @@ static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=time(NULL)
         json_object*d=json_object_array_get_idx(a,i); if(break_active[i]&&now>=brk_until[i]){break_active[i]=0;brk_until[i]=0;session_seconds[i]=0;changed=rules_changed=1;}
         int before=is_blocked(d,i), active=0;
         if(have){
-            if(counters_seen[i]){unsigned long long di=inb[i]>=previous_inbound[i]?inb[i]-previous_inbound[i]:inb[i]; unsigned long long do_=outb[i]>=previous_outbound[i]?outb[i]-previous_outbound[i]:outb[i]; unsigned long long threshold=(unsigned long long)ival(d,"activity_threshold_bytes",1); if(di+do_>=threshold){active=1;last_active[i]=now;}}
+            if(counters_seen[i]){unsigned long long di=inb[i]>=previous_inbound[i]?inb[i]-previous_inbound[i]:inb[i]; unsigned long long do_=outb[i]>=previous_outbound[i]?outb[i]-previous_outbound[i]:outb[i]; unsigned long long threshold=(unsigned long long)ival(d,"activity_threshold_bytes",4096); if(di+do_>=threshold){active=1;last_active[i]=now;}}
             else {counters_seen[i]=1;}
             previous_inbound[i]=inb[i]; previous_outbound[i]=outb[i]; changed=1;
         }
-        int idle=ival(d,"idle_timeout_seconds",0); if(!active&&last_active[i]&&idle>0&&now-last_active[i]<=idle)active=1;
+        int idle=ival(d,"idle_timeout_seconds",300); if(!active&&last_active[i]&&idle>0&&now-last_active[i]<=idle)active=1;
         if(!bval(d,"enabled",1))active=0;
         if(active&&!before){used_seconds[i]+=dt;session_seconds[i]+=dt;changed=1;if(bval(d,"session_limit_enabled",0)&&bval(d,"break_enabled",0)){int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim){break_active[i]=1;brk_until[i]=now+ival(d,"break_minutes",0)*60;session_seconds[i]=0;changed=rules_changed=1;}}}
         int after=is_blocked(d,i); if(after!=before||after!=blocked_cache[i])rules_changed=1; blocked_cache[i]=after;
@@ -156,7 +156,7 @@ static void state_device(json_object*out,json_object*d,int i){
     int n=night(d),ba=break_active[i]&&time(NULL)<brk_until[i];
     int daily_limit=ival(d,"daily_limit_minutes",0)*60+(int)bonus_minutes[i]*60;
     int dl=bval(d,"daily_limit_enabled",0)&&daily_limit>0&&used_seconds[i]>=daily_limit;
-    int blocked=manual[i]||(!temporary_unblock[i]&&(n||ba||dl));
+    int enabled=bval(d,"enabled",1),blocked=is_blocked(d,i);
     long long session_limit=(long long)ival(d,"session_limit_minutes",60)*60;
     long long session_remaining=session_limit-session_seconds[i];if(session_remaining<0)session_remaining=0;
     long long daily_remaining=(long long)daily_limit-used_seconds[i];if(daily_remaining<0)daily_remaining=0;
@@ -177,10 +177,10 @@ static void state_device(json_object*out,json_object*d,int i){
 
     json_object_object_add(out,"block_reason",json_object_new_string(blocked?(manual[i]?"manual":n&&!temporary_unblock[i]?"night":ba&&!temporary_unblock[i]?"break":"daily_limit"):""));
     json_object *rs=json_object_new_array();
-    if(manual[i])json_object_array_add(rs,json_object_new_string("manual"));
-    if(n&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("night"));
-    if(ba&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("break"));
-    if(dl&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("daily_limit"));
+    if(enabled&&manual[i])json_object_array_add(rs,json_object_new_string("manual"));
+    if(enabled&&n&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("night"));
+    if(enabled&&ba&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("break"));
+    if(enabled&&dl&&!temporary_unblock[i])json_object_array_add(rs,json_object_new_string("daily_limit"));
     json_object_object_add(out,"block_reasons",rs);
 }
 static json_object *state_snapshot(void){
@@ -213,7 +213,7 @@ static void handle(int c){char b[65536];ssize_t n=read(c,b,sizeof(b)-1);if(n<=0)
 if(!strcmp(path,"/api/health")||!strcmp(path,"/api/status")){j=okmsg("ok");json_object_object_add(j,"device_count",json_object_new_int(json_object_array_length(arr())));}
 else if(!strcmp(path,"/api/state")){j=state_snapshot();}
 else if(!strcmp(path,"/api/devices")&&!strcmp(method,"GET")){j=okmsg(NULL);json_object_object_add(j,"devices",json_object_get(arr()));}
-else if(!strcmp(path,"/api/devices")&&!strcmp(method,"POST")){json_object*d=json_tokener_parse(body);const char*err=validate_device(d,0);if(json_object_array_length(arr())>=128){j=okmsg("device limit reached");json_object_object_add(j,"success",json_object_new_boolean(0));code=400;if(d)json_object_put(d);}else if(err){j=okmsg(err);json_object_object_add(j,"success",json_object_new_boolean(0));code=400;if(d)json_object_put(d);}else if(known_mac(sval(d,"mac",""))){j=okmsg("duplicate device id or MAC");json_object_object_add(j,"success",json_object_new_boolean(0));code=409;json_object_put(d);}else{if(!json_object_object_get_ex(d,"id",NULL)){char id[64];make_device_id(sval(d,"mac",""),id);json_object_object_add(d,"id",json_object_new_string(id));}if(findid(sval(d,"id",""))>=0){j=okmsg("duplicate device id or MAC");json_object_object_add(j,"success",json_object_new_boolean(0));code=409;json_object_put(d);}else{json_object_array_add(arr(),d);save();nft_apply();save_state();history_event(sval(d,"id",""),"device created");j=okmsg("device created");}}}
+else if(!strcmp(path,"/api/devices")&&!strcmp(method,"POST")){json_object*d=json_tokener_parse(body);const char*err=validate_device(d,0);if(json_object_array_length(arr())>=128){j=okmsg("device limit reached");json_object_object_add(j,"success",json_object_new_boolean(0));code=400;if(d)json_object_put(d);}else if(err){j=okmsg(err);json_object_object_add(j,"success",json_object_new_boolean(0));code=400;if(d)json_object_put(d);}else if(known_mac(sval(d,"mac",""))){j=okmsg("duplicate device id or MAC");json_object_object_add(j,"success",json_object_new_boolean(0));code=409;json_object_put(d);}else{json_object*vdefault=NULL;if(!json_object_object_get_ex(d,"enabled",&vdefault))json_object_object_add(d,"enabled",json_object_new_boolean(1));if(!json_object_object_get_ex(d,"activity_threshold_bytes",&vdefault))json_object_object_add(d,"activity_threshold_bytes",json_object_new_int(4096));if(!json_object_object_get_ex(d,"idle_timeout_seconds",&vdefault))json_object_object_add(d,"idle_timeout_seconds",json_object_new_int(300));if(!json_object_object_get_ex(d,"id",NULL)){char id[64];make_device_id(sval(d,"mac",""),id);json_object_object_add(d,"id",json_object_new_string(id));}if(findid(sval(d,"id",""))>=0){j=okmsg("duplicate device id or MAC");json_object_object_add(j,"success",json_object_new_boolean(0));code=409;json_object_put(d);}else{json_object_array_add(arr(),d);save();nft_apply();save_state();history_event(sval(d,"id",""),"device created");j=okmsg("device created");}}}
 else if(!strcmp(path,"/api/discovered")){j=okmsg(NULL);json_object_object_add(j,"devices",discover_devices());}
 else if(!strcmp(path,"/api/history")){j=okmsg(NULL);json_object*h=history_read(),*e=NULL;if(json_object_object_get_ex(h,"events",&e))json_object_object_add(j,"events",json_object_get(e));else json_object_object_add(j,"events",json_object_new_array());json_object_put(h);}
 else if(!strncmp(path,"/api/devices/",13)){char tmp[512];snprintf(tmp,sizeof tmp,"%s",path+13);char *slash=strchr(tmp,'/');if(slash)*slash++=0;int i=findid(tmp);if(i<0){j=okmsg("device not found");json_object_object_add(j,"success",json_object_new_boolean(0));code=404;}
