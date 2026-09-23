@@ -17,6 +17,8 @@ if [ -d /var/lib/parental-control ]; then
   cp -a /var/lib/parental-control "$D/backup/var-lib-parental-control"
 fi
 
+touch "$D/backup/.prepared"
+
 printf '%s\n' "Backup created in $D/backup"
 printf '%s\n' "Copy your reconstructed test binaries into $D as parental-control and parental-control-web."
 printf '%s\n' "The restore script will restore both /etc/parental-control and /var/lib/parental-control."
