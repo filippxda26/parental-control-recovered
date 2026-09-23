@@ -317,7 +317,8 @@ hostList.after(addHost);
 const hostnameEnabled=form.elements.hostname_enabled;
 function syncHostnameEnabled(){
   const enabled=hostnameEnabled.checked;
-  hostList.querySelectorAll('input,button').forEach(el=>el.disabled=!enabled);
+  hostList.querySelectorAll('input').forEach(input=>{input.disabled=!enabled;input.required=enabled});
+  hostList.querySelectorAll('button').forEach(button=>button.disabled=!enabled);
   addHost.disabled=!enabled;
   hostList.closest('label')?.classList.toggle('disabled-field',!enabled);
 }
