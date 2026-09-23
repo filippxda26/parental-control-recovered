@@ -37,7 +37,7 @@ body{
   background-attachment:fixed;
 }
 
-button,input{
+button,input,textarea{
   font:inherit;
 }
 
@@ -351,7 +351,7 @@ label{
   font-weight:700;
 }
 
-input{
+input,textarea{
   width:100%;
   min-height:42px;
   padding:10px 11px;
@@ -363,16 +363,24 @@ input{
   transition:border-color .16s ease,box-shadow .16s ease,background .16s ease;
 }
 
-input:focus{
+input:focus,
+textarea:focus{
   border-color:rgba(84,101,255,.65);
   box-shadow:0 0 0 3px rgba(84,101,255,.12);
   background:rgba(255,255,255,.5);
 }
 
 input:disabled,
-input:read-only{
+input:read-only,
+textarea:disabled,
+textarea:read-only{
   cursor:not-allowed;
   opacity:.55;
+}
+
+textarea{
+  min-height:112px;
+  resize:vertical;
 }
 
 .toggle{
@@ -501,11 +509,13 @@ input:read-only{
   background:rgba(255,255,255,.055);
 }
 
-[data-theme=dark] input{
+[data-theme=dark] input,
+[data-theme=dark] textarea{
   background:rgba(255,255,255,.025);
 }
 
-[data-theme=dark] input:focus{
+[data-theme=dark] input:focus,
+[data-theme=dark] textarea:focus{
   background:rgba(255,255,255,.045);
 }
 

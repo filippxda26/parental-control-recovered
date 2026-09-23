@@ -145,6 +145,11 @@ function deviceUiSignature(device){
     night_enabled:!!device.night_enabled,
     speed_limit_enabled:!!device.speed_limit_enabled,
     speed_limit_mbps:Number(device.speed_limit_mbps)||0,
+    whitelist_enabled:!!device.whitelist_enabled,
+    whitelist_active:!!device.whitelist_active,
+    whitelist_start:device.whitelist_start||'',
+    whitelist_end:device.whitelist_end||'',
+    whitelist_entries:device.whitelist_entries||[],
     night_start:device.night_start||'',
     night_end:device.night_end||''
   });
@@ -182,6 +187,9 @@ function card(device){
   }else if(temporary){
     access.textContent='Временно разрешён';
     access.className='access allowed';
+  }else if(blocked&&device.whitelist_active&&(device.whitelist_entries||[]).length){
+    access.textContent='Только Whitelist';
+    access.className='access allowed';
   }else{
     access.textContent=blocked?'Доступ заблокирован':'Интернет разрешён';
     access.className='access '+(blocked?'blocked':'allowed');
@@ -190,6 +198,11 @@ function card(device){
   const dl=article.querySelector('dl');
   if(device.speed_limit_enabled&&!blocked){
     dl.after(usageLine('speed-limit',`Скорость ограничена: до ${Number(device.speed_limit_mbps)||0} Мбит/с`));
+  }
+  if(device.whitelist_enabled){
+    const entries=(device.whitelist_entries||[]).length;
+    const status=device.whitelist_active?'активен':'неактивен';
+    dl.after(usageLine('whitelist-status',`Whitelist: ${status}, ${entries} адресов · ${device.whitelist_start||''}–${device.whitelist_end||''}`));
   }
   const reasons=reasonLabels(device);
   if(reasons.length){
@@ -367,7 +380,7 @@ function normalizeTime(input){
   const h=Number(match[1]),m=Number(match[2]);
   if(h<24&&m<60)input.value=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
-for(const name of ['night_start','night_end']){
+for(const name of ['night_start','night_end','whitelist_start','whitelist_end']){
   form.elements[name].addEventListener('blur',()=>normalizeTime(form.elements[name]));
 }
 
@@ -385,12 +398,13 @@ function openEditor(device=null){
   hostList.replaceChildren();
 
   if(device){
-    for(const key of ['name','mac','daily_limit_minutes','session_limit_minutes','break_minutes','speed_limit_mbps','night_start','night_end']){
+    for(const key of ['name','mac','daily_limit_minutes','session_limit_minutes','break_minutes','speed_limit_mbps','night_start','night_end','whitelist_start','whitelist_end']){
       if(form.elements[key]&&device[key]!==undefined)form.elements[key].value=device[key];
     }
-    for(const key of ['daily_limit_enabled','session_limit_enabled','break_enabled','night_enabled','speed_limit_enabled']){
+    for(const key of ['daily_limit_enabled','session_limit_enabled','break_enabled','night_enabled','speed_limit_enabled','whitelist_enabled']){
       form.elements[key].checked=!!device[key];
     }
+    form.elements.whitelist_entries.value=(device.whitelist_entries||[]).join('\n');
     const savedHostnames=(device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean);
     hostnameEnabled.checked=savedHostnames.length>0;
     savedHostnames.forEach(hostRow);
@@ -402,6 +416,10 @@ function openEditor(device=null){
     form.elements.night_enabled.checked=false;
     form.elements.speed_limit_enabled.checked=false;
     form.elements.speed_limit_mbps.value=5;
+    form.elements.whitelist_enabled.checked=false;
+    form.elements.whitelist_start.value='08:00';
+    form.elements.whitelist_end.value='22:00';
+    form.elements.whitelist_entries.value='';
     hostnameEnabled.checked=true;
     hostRow();
   }
@@ -439,6 +457,8 @@ form.addEventListener('submit',async event=>{
   event.preventDefault();
   normalizeTime(form.elements.night_start);
   normalizeTime(form.elements.night_end);
+  normalizeTime(form.elements.whitelist_start);
+  normalizeTime(form.elements.whitelist_end);
   if(!form.reportValidity())return;
 
   const hostnames=hostnameEnabled.checked
@@ -447,6 +467,16 @@ form.addEventListener('submit',async event=>{
   const normalized=hostnames.map(host=>host.toLowerCase());
   if(hostnameEnabled.checked&&(!hostnames.length||new Set(normalized).size!==hostnames.length)){
     alert('Укажите хотя бы один уникальный Hostname или выключите использование Hostname');
+    return;
+  }
+
+  const whitelistEntries=[...new Set(form.elements.whitelist_entries.value.split(/[\n,]+/).map(value=>value.trim().toLowerCase()).filter(Boolean))];
+  if(form.elements.whitelist_enabled.checked&&!whitelistEntries.length){
+    alert('Добавьте хотя бы один домен или IP в Whitelist');
+    return;
+  }
+  if(form.elements.whitelist_enabled.checked&&form.elements.whitelist_start.value===form.elements.whitelist_end.value){
+    alert('Начало и конец времени Whitelist должны отличаться');
     return;
   }
 
@@ -459,12 +489,16 @@ form.addEventListener('submit',async event=>{
     break_enabled:form.elements.break_enabled.checked,
     night_enabled:form.elements.night_enabled.checked,
     speed_limit_enabled:form.elements.speed_limit_enabled.checked,
+    whitelist_enabled:form.elements.whitelist_enabled.checked,
+    whitelist_entries:whitelistEntries,
     daily_limit_minutes:Number(form.elements.daily_limit_minutes.value),
     session_limit_minutes:Number(form.elements.session_limit_minutes.value),
     break_minutes:Number(form.elements.break_minutes.value),
     speed_limit_mbps:Number(form.elements.speed_limit_mbps.value),
     night_start:form.elements.night_start.value,
-    night_end:form.elements.night_end.value
+    night_end:form.elements.night_end.value,
+    whitelist_start:form.elements.whitelist_start.value,
+    whitelist_end:form.elements.whitelist_end.value
   };
 
   try{
