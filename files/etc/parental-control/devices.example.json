@@ -15,6 +15,8 @@
       "idle_timeout_seconds": 300,
       "activity_threshold_bytes": 4096,
       "night_enabled": false,
+      "speed_limit_enabled": false,
+      "speed_limit_mbps": 5,
       "night_start": "22:00",
       "night_end": "08:00"
     }
