@@ -133,8 +133,8 @@ static void runtime_remove(int i){if(i<0||i>=128)return;for(int k=i;k<127;k++){m
 static void make_device_id(const char*mac,char out[64]){char*p=out;memcpy(p,"device-",7);p+=7;for(const unsigned char*s=(const unsigned char*)mac;*s&&p<out+63;s++)if(isxdigit(*s))*p++=(char)tolower(*s);*p=0;}
 static json_object *arr(void){json_object *a=NULL;if(!root||!json_object_object_get_ex(root,"devices",&a)){root=json_object_new_object();a=json_object_new_array();json_object_object_add(root,"devices",a);}return a;}
 static const char *sval(json_object *o,const char*k,const char*d){json_object*v=NULL;if(!o||!json_object_object_get_ex(o,k,&v)||!v||json_object_is_type(v,json_type_null))return d;const char*s=json_object_get_string(v);return s?s:d;}
-static int ival(json_object *o,const char*k,int d){json_object*v;return json_object_object_get_ex(o,k,&v)?json_object_get_int(v):d;}
-static int bval(json_object *o,const char*k,int d){json_object*v;return json_object_object_get_ex(o,k,&v)?json_object_get_boolean(v):d;}
+static int ival(json_object *o,const char*k,int d){json_object*v=NULL;return o&&json_object_object_get_ex(o,k,&v)&&v&&!json_object_is_type(v,json_type_null)?json_object_get_int(v):d;}
+static int bval(json_object *o,const char*k,int d){json_object*v=NULL;return o&&json_object_object_get_ex(o,k,&v)&&v&&!json_object_is_type(v,json_type_null)?json_object_get_boolean(v):d;}
 static int findid(const char *id){json_object*a=arr();for(int i=0;i<(int)json_object_array_length(a);i++)if(!strcmp(sval(json_object_array_get_idx(a,i),"id",""),id))return i;return -1;}
 typedef struct{long long expiry;char mac[32],ip[64],host[128];}DhcpLease;
 static int lease_active(long long expiry){return expiry==0||expiry>(long long)time(NULL);}
