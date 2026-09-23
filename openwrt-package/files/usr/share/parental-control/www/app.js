@@ -101,9 +101,9 @@ function duration(value){
 
 function reasonLabels(device){
   const active=new Set(device.block_reasons||[]),reasons=[];
-  if(device.manual_blocked||active.has('manual'))reasons.push('заблокировано вручную');
+  if(active.has('manual'))reasons.push('заблокировано вручную');
   if(active.has('night'))reasons.push('ночная блокировка');
-  if(device.break_active||active.has('break'))reasons.push('отдых');
+  if(active.has('break'))reasons.push('отдых');
   if(active.has('daily_limit'))reasons.push('ограничение времени на день');
   return reasons;
 }
