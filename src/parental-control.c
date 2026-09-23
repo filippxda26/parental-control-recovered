@@ -51,6 +51,7 @@ static void load_state(void){
             used_seconds[i]=ival(o,"used_seconds",0);
             session_seconds[i]=ival(o,"session_seconds",0);
             brk_until[i]=(time_t)json_object_get_int64(json_object_object_get(o,"break_until"));
+            if(brk_until[i]>0&&brk_until[i]<=time(NULL)){brk_until[i]=0;session_seconds[i]=0;}
             manual[i]=bval(o,"manual_block",0);
             temporary_unblock[i]=bval(o,"temporary_unblock",0);
             bonus_minutes[i]=ival(o,"bonus_minutes",0);
@@ -81,6 +82,7 @@ static void load_state(void){
             int ba=bval(o,"break_active",0),left=ival(o,"break_remaining_seconds",0);
             time_t elapsed=time(NULL)>saved_at?time(NULL)-saved_at:0;if(elapsed>0&&left>0)left=elapsed>=left?0:left-(int)elapsed;
             break_active[i]=ba&&left>0;
+            if(ba&&!break_active[i])session_seconds[i]=0;
             brk_until[i]=break_active[i]?time(NULL)+left:0;
             counters_seen[i]=0;
             previous_inbound[i]=previous_outbound[i]=0;
