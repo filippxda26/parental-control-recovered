@@ -129,7 +129,7 @@ static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=monotonic_
         if(active&&!before){used_seconds[i]+=dt;changed=1;if(cycle&&!break_active[i]){session_seconds[i]+=dt;int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim){start_break_state(i,ival(d,"break_minutes",0)*60);changed=rules_changed=1;}}}
         int after=is_blocked(d,i); if(after!=before||after!=blocked_cache[i])rules_changed=1;
     }
-    if(changed)save_state();
+    if(changed||rules_changed)save_state();
     if(rules_changed)nft_dirty=1;
     if(nft_dirty)nft_commit();
 }
@@ -167,8 +167,15 @@ static void state_device(json_object*out,json_object*d,int i){
     char ip[64];dhcp(d,ip,sizeof ip);if(*ip)json_object_object_add(out,"ip",json_object_new_string(ip));
     json_object_object_add(out,"enabled",json_object_new_boolean(bval(d,"enabled",1)));
 
-    const char *keys[]={"daily_limit_minutes","session_limit_minutes","break_minutes","daily_limit_enabled","session_limit_enabled","break_enabled","night_enabled","night_start","night_end"};
-    for(size_t k=0;k<sizeof(keys)/sizeof(keys[0]);k++){json_object*v;if(json_object_object_get_ex(d,keys[k],&v))json_object_object_add(out,keys[k],json_object_get(v));}
+    json_object_object_add(out,"daily_limit_minutes",json_object_new_int(ival(d,"daily_limit_minutes",0)));
+    json_object_object_add(out,"session_limit_minutes",json_object_new_int(ival(d,"session_limit_minutes",60)));
+    json_object_object_add(out,"break_minutes",json_object_new_int(ival(d,"break_minutes",60)));
+    json_object_object_add(out,"daily_limit_enabled",json_object_new_boolean(bval(d,"daily_limit_enabled",0)));
+    json_object_object_add(out,"session_limit_enabled",json_object_new_boolean(bval(d,"session_limit_enabled",0)));
+    json_object_object_add(out,"break_enabled",json_object_new_boolean(bval(d,"break_enabled",0)));
+    json_object_object_add(out,"night_enabled",json_object_new_boolean(bval(d,"night_enabled",0)));
+    json_object_object_add(out,"night_start",json_object_new_string(sval(d,"night_start","22:00")));
+    json_object_object_add(out,"night_end",json_object_new_string(sval(d,"night_end","08:00")));
 
     long long runtime_break_left=break_left(i);int n=night(d),ba=bval(d,"break_enabled",0)&&runtime_break_left>0;
     int daily_limit=ival(d,"daily_limit_minutes",0)*60+(int)bonus_minutes[i]*60;
