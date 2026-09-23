@@ -45,7 +45,7 @@ static void load_state(void){
     json_object*v=NULL,*a=NULL;
     if(json_object_object_get_ex(j,"states",&a)&&json_object_is_type(a,json_type_array)){
         if(json_object_object_get_ex(j,"reset_date",&v))snprintf(reset_date,sizeof reset_date,"%s",json_object_get_string(v));
-        if(strcmp(reset_date,today)){snprintf(reset_date,sizeof reset_date,"%s",today);json_object_put(j);return;}
+        if(strcmp(reset_date,today)){snprintf(reset_date,sizeof reset_date,"%s",today);for(int x=0;x<(int)json_object_array_length(a);x++){json_object*o=json_object_array_get_idx(a,x);int i=findid(sval(o,"id",""));if(i>=0)manual[i]=bval(o,"manual_block",0);}json_object_put(j);return;}
         for(int x=0;x<(int)json_object_array_length(a);x++){
             json_object*o=json_object_array_get_idx(a,x);int i=findid(sval(o,"id",""));if(i<0)continue;
             used_seconds[i]=ival(o,"used_seconds",0);
@@ -69,7 +69,7 @@ static void load_state(void){
     if(json_object_object_get_ex(j,"state_timestamp",&v))saved_at=(time_t)json_object_get_int64(v);
     struct tm z;localtime_r(&saved_at,&z);char saved_date[16];strftime(saved_date,sizeof saved_date,"%F",&z);
     snprintf(reset_date,sizeof reset_date,"%s",today);
-    if(strcmp(saved_date,today)){json_object_put(j);return;}
+    if(strcmp(saved_date,today)){if(json_object_object_get_ex(j,"devices",&a)&&json_object_is_type(a,json_type_array))for(int x=0;x<(int)json_object_array_length(a);x++){json_object*o=json_object_array_get_idx(a,x);int i=findid(sval(o,"id",""));if(i>=0)manual[i]=bval(o,"manual_blocked",0);}json_object_put(j);return;}
 
     if(json_object_object_get_ex(j,"devices",&a)&&json_object_is_type(a,json_type_array)){
         for(int x=0;x<(int)json_object_array_length(a);x++){
