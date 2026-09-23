@@ -50,6 +50,7 @@ jobs:
       - name: Build APK
         working-directory: sdk
         run: |
+          make package/libs/libjson-c/compile V=s -j"$(nproc)"
           make package/parental-control/compile V=s -j"$(nproc)"
 
       - name: Collect and inspect APK
