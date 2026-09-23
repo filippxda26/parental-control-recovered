@@ -176,7 +176,7 @@ function card(device){
     dl.after(reason);
   }
 
-  const progress=$('.progress',article),daily=$('.usage',article);
+  const progress=$('.progress',article),daily=$('.daily-usage',article);
   if(device.daily_limit_enabled){
     progress.hidden=false;
     daily.hidden=false;
@@ -233,7 +233,7 @@ function syncLiveCard(device,element=null){
     const used=Math.max(0,Number(device.used_seconds)||0);
     const limit=Math.max(0,Number(device.daily_limit_seconds)||Number(device.daily_limit_minutes||0)*60);
     progress.firstElementChild.style.width=`${limit?Math.min(100,used/limit*100):0}%`;
-    const daily=element.querySelector('.usage:not(.daily-remaining):not(.block-reason):not(.cycle-mode):not(.session-left):not(.rest-status):not(.rest-left):not(.night-status)');
+    const daily=element.querySelector('.daily-usage');
     if(daily)daily.textContent=`Время на сегодня: использовано ${duration(used)} из ${duration(limit)}`;
     const remaining=element.querySelector('.daily-remaining');
     if(remaining)remaining.textContent=`Осталось на сегодня: ${duration(Math.max(0,Number(device.daily_remaining_seconds)||0))}`;
