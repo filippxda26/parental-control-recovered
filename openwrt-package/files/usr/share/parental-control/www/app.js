@@ -17,19 +17,27 @@ function connectSocket(){
   if(socketPromise)return socketPromise;
   socketPromise=new Promise((resolve,reject)=>{
     const ws=new WebSocket(socketUrl());
+    let opened=false,settled=false;
     socket=ws;
+    const fail=message=>{
+      if(settled)return;
+      settled=true;
+      socketPromise=null;
+      reject(Error(message));
+    };
     const timeout=setTimeout(()=>{
       if(ws.readyState!==WebSocket.OPEN){
+        fail('Не удалось подключить WebSocket');
         try{ws.close()}catch{}
-        reject(Error('Не удалось подключить WebSocket'));
       }
     },5000);
     ws.onopen=()=>{
+      opened=true;
+      if(!settled){settled=true;resolve(ws)}
       clearTimeout(timeout);
       clearTimeout(reconnectTimer);
       socketPromise=null;
       $('#service').textContent='Служба работает';
-      resolve(ws);
     };
     ws.onmessage=event=>{
       let message;
@@ -53,7 +61,8 @@ function connectSocket(){
     ws.onerror=()=>{};
     ws.onclose=()=>{
       clearTimeout(timeout);
-      socketPromise=null;
+      if(!opened)fail('WebSocket закрылся до подключения');
+      else socketPromise=null;
       if(socket===ws)socket=null;
       for(const pending of socketPending.values()){
         clearTimeout(pending.timer);
