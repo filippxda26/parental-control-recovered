@@ -108,7 +108,7 @@ static int read_nft_counters(unsigned long long *inb,unsigned long long *outb){
 }
 static int is_blocked(json_object*d,int i){if(!bval(d,"enabled",1))return 0;long long lim=(long long)ival(d,"daily_limit_minutes",0)*60+bonus_minutes[i]*60;return manual[i]||(!temporary_unblock[i]&&(night(d)||(bval(d,"break_enabled",0)&&break_left(i)>0)||(bval(d,"daily_limit_enabled",0)&&lim>0&&used_seconds[i]>=lim)));}
 static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=monotonic_now();if(now_sync-last_dhcp_sync>=2){sync_dhcp_macs();last_dhcp_sync=now_sync;}
-    static time_t last_mono=0; time_t mono=monotonic_now(),now=time(NULL); if(!last_mono){last_mono=mono;return;} int dt=(int)(mono-last_mono); if(dt<1)return; if(dt>60)dt=1; last_mono=mono;
+    static time_t last_mono=0; time_t mono=monotonic_now(); if(!last_mono){last_mono=mono;return;} int dt=(int)(mono-last_mono); if(dt<1)return; if(dt>60)dt=1; last_mono=mono;
     char today[16]; date_now(today); if(strcmp(today,reset_date))reset_today_all();
     unsigned long long inb[128],outb[128]; int have=read_nft_counters(inb,outb); json_object*a=arr(); int changed=0, rules_changed=0;
     if(have<0){nft_dirty=1;have=0;}
