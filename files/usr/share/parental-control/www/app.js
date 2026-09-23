@@ -318,7 +318,7 @@ function hostRow(value=''){
   row.append(input,remove);
   hostList.append(row);
 }
-addHost.onclick=()=>hostRow();
+addHost.onclick=()=>{if(hostList.children.length>=16){alert('Можно указать не больше 16 Hostname');return;}hostRow();};
 
 const deleteDevice=document.createElement('button');
 deleteDevice.type='button';
