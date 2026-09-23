@@ -18,6 +18,11 @@ define Package/parental-control/description
  Reconstructed parental-control daemon and web frontend recovered from installed binaries.
 endef
 
+define Package/parental-control/conffiles
+/etc/parental-control/devices.json
+/etc/parental-control/settings.json
+endef
+
 define Build/Prepare
 	$(call Build/Prepare/Default)
 	$(CP) ./src/* $(PKG_BUILD_DIR)/
@@ -35,7 +40,8 @@ define Package/parental-control/install
 	$(INSTALL_BIN) ./files/etc/init.d/parental-control $(1)/etc/init.d/
 	$(INSTALL_BIN) ./files/etc/init.d/parental-control-web $(1)/etc/init.d/
 	$(INSTALL_CONF) ./files/etc/parental-control/settings.json $(1)/etc/parental-control/
-	$(INSTALL_CONF) ./files/etc/parental-control/devices.example.json $(1)/etc/parental-control/devices.json
+	$(INSTALL_CONF) ./files/etc/parental-control/devices.default.json $(1)/etc/parental-control/devices.json
+	$(INSTALL_CONF) ./files/etc/parental-control/devices.example.json $(1)/etc/parental-control/devices.example.json
 	$(CP) ./files/usr/share/parental-control/www/* $(1)/usr/share/parental-control/www/
 endef
 
