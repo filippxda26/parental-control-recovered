@@ -125,7 +125,7 @@ static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=monotonic_
         }
         int idle=ival(d,"idle_timeout_seconds",300); if(!before&&!active&&last_active[i]&&idle>0&&mono-last_active[i]<=idle)active=1;
         if(!bval(d,"enabled",1))active=0;
-        if(active&&!before){used_seconds[i]+=dt;changed=1;if(cycle){session_seconds[i]+=dt;int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim){start_break_state(i,ival(d,"break_minutes",0)*60);changed=rules_changed=1;}}}
+        if(active&&!before){used_seconds[i]+=dt;changed=1;if(cycle&&!break_active[i]){session_seconds[i]+=dt;int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim){start_break_state(i,ival(d,"break_minutes",0)*60);changed=rules_changed=1;}}}
         int after=is_blocked(d,i); if(after!=before||after!=blocked_cache[i])rules_changed=1;
     }
     if(changed)save_state();
