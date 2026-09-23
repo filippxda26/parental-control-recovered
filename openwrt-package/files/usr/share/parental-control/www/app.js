@@ -191,12 +191,13 @@ function card(device){
   }
 
   const anchor=article.querySelector('.daily-remaining')||daily;
-  if(cycle&&!manual&&!night){
-    const mode=usageLine('cycle-mode',`Режим: ${device.session_limit_minutes} мин. пользования / ${device.break_minutes} мин. отдыха`);
-    const session=usageLine('session-left');
-    const restStatus=usageLine('rest-status');
-    const restLeft=usageLine('rest-left');
-    anchor.after(mode,session,restStatus,restLeft);
+  if(!manual&&!night&&(cycle||device.break_active)){
+    const lines=[];
+    if(cycle)lines.push(usageLine('cycle-mode',`Режим: ${device.session_limit_minutes} мин. пользования / ${device.break_minutes} мин. отдыха`));
+    if(cycle)lines.push(usageLine('session-left'));
+    lines.push(usageLine('rest-status'));
+    lines.push(usageLine('rest-left'));
+    anchor.after(...lines);
   }
   if(night){
     anchor.after(usageLine('night-status',`Ночная блокировка до ${device.night_end||''}`));
@@ -241,7 +242,10 @@ function syncLiveCard(device,element=null){
   const session=element.querySelector('.session-left');
   const restStatus=element.querySelector('.rest-status');
   const restLeft=element.querySelector('.rest-left');
-  if(session)session.textContent=`До отдыха осталось: ${duration(device.session_remaining_seconds)}`;
+  if(session){
+    session.hidden=!!device.break_active;
+    session.textContent=`До отдыха осталось: ${duration(device.session_remaining_seconds)}`;
+  }
   if(restStatus)restStatus.textContent=device.break_active?'Отдых: активен':'Отдых: неактивен';
   if(restLeft){
     restLeft.hidden=!device.break_active;
