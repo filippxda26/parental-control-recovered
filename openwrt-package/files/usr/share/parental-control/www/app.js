@@ -167,7 +167,9 @@ function card(device){
 
   $('.dot',article).classList.toggle('offline',!device.ip);
   $('h3',article).textContent=device.name||'Без имени';
-  $('.host',article).textContent=(device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean).join(', ');
+  const hostText=(device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean).join(', ');
+  $('.host',article).textContent=hostText;
+  $('.host',article).hidden=!hostText;
   $('.ip',article).textContent=device.ip?`${device.ip} · определён автоматически`:'не определён · устройство не подключено';
   $('.mac',article).textContent=device.mac||'—';
 
@@ -312,12 +314,20 @@ addHost.type='button';
 addHost.className='secondary add-hostname';
 addHost.textContent='+ Добавить Hostname';
 hostList.after(addHost);
+const hostnameEnabled=form.elements.hostname_enabled;
+function syncHostnameEnabled(){
+  const enabled=hostnameEnabled.checked;
+  hostList.querySelectorAll('input,button').forEach(el=>el.disabled=!enabled);
+  addHost.disabled=!enabled;
+  hostList.closest('label')?.classList.toggle('disabled-field',!enabled);
+}
+hostnameEnabled.addEventListener('change',syncHostnameEnabled);
 
 function hostRow(value=''){
   const row=document.createElement('div');
   row.className='hostname-row';
   const input=document.createElement('input');
-  input.required=true;
+  input.required=hostnameEnabled.checked;
   input.maxLength=127;
   input.value=value;
   input.placeholder='SM-T500';
@@ -334,6 +344,7 @@ function hostRow(value=''){
   };
   row.append(input,remove);
   hostList.append(row);
+  syncHostnameEnabled();
 }
 addHost.onclick=()=>{if(hostList.children.length>=16){alert('Можно указать не больше 16 Hostname');return;}hostRow();};
 
@@ -374,15 +385,19 @@ function openEditor(device=null){
     for(const key of ['daily_limit_enabled','session_limit_enabled','break_enabled','night_enabled']){
       form.elements[key].checked=!!device[key];
     }
-    (device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean).forEach(hostRow);
+    const savedHostnames=(device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean);
+    hostnameEnabled.checked=savedHostnames.length>0;
+    savedHostnames.forEach(hostRow);
     if(!hostList.children.length)hostRow();
   }else{
     form.elements.daily_limit_enabled.checked=false;
     form.elements.session_limit_enabled.checked=true;
     form.elements.break_enabled.checked=true;
     form.elements.night_enabled.checked=false;
+    hostnameEnabled.checked=true;
     hostRow();
   }
+  syncHostnameEnabled();
 
   $('#dialog-title').textContent=device?'Настройки устройства':'Новое устройство';
   deleteDevice.hidden=!device;
@@ -418,10 +433,12 @@ form.addEventListener('submit',async event=>{
   normalizeTime(form.elements.night_end);
   if(!form.reportValidity())return;
 
-  const hostnames=[...hostList.querySelectorAll('input')].map(input=>input.value.trim()).filter(Boolean);
+  const hostnames=hostnameEnabled.checked
+    ? [...hostList.querySelectorAll('input')].map(input=>input.value.trim()).filter(Boolean)
+    : [];
   const normalized=hostnames.map(host=>host.toLowerCase());
-  if(!hostnames.length||new Set(normalized).size!==hostnames.length){
-    alert('Укажите хотя бы один уникальный Hostname');
+  if(hostnameEnabled.checked&&(!hostnames.length||new Set(normalized).size!==hostnames.length)){
+    alert('Укажите хотя бы один уникальный Hostname или выключите использование Hostname');
     return;
   }
 
