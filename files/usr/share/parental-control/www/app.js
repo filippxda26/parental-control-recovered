@@ -313,10 +313,12 @@ function renderState(data){
   $('#count-online').textContent=latest.filter(device=>device.ip).length;
   $('#count-blocked').textContent=latest.filter(device=>device.blocked).length;
   $('#service').textContent='Служба работает';
-  const pairing=$('#pairing'),candidate=data.connect_candidate;
-  pairing.hidden=!candidate;
-  pairingCandidate=candidate||null;
-  if(candidate)$('#pairing-info').textContent=`IP ${candidate.ip||'—'} · MAC ${candidate.mac||'—'}`;
+  const pairing=$('#pairing'),info=$('#pairing-info'),candidate=data.connect_candidate;
+  const validCandidate=!!(candidate&&candidate.ip&&candidate.mac);
+  pairingCandidate=validCandidate?candidate:null;
+  pairing.hidden=!validCandidate;
+  info.textContent=validCandidate?`IP ${candidate.ip} · MAC ${candidate.mac}`:'';
+  $('#pairing-add').disabled=!validCandidate;
 }
 
 async function refresh(){
