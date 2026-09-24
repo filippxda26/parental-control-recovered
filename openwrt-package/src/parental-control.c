@@ -290,7 +290,7 @@ static int nft_apply(void){
     }
     fclose(f);int rc=system("/usr/sbin/nft -f " NFT_RULES " >/dev/null 2>&1 || /usr/bin/nft -f " NFT_RULES " >/dev/null 2>&1");return rc;
 }
-static int nft_commit(void){int rc=nft_apply();if(rc==0){nft_dirty=0;json_object*a=arr();for(int i=0;i<(int)json_object_array_length(a)&&i<128;i++){json_object*d=json_object_array_get_idx(a,i);blocked_cache[i]=is_blocked(d,i)||whitelist_ready(d);whitelist_cache[i]=whitelist_ready(d);}}else{nft_dirty=1;fprintf(stderr,"parental-control: nftables apply failed; will retry\n");}return rc;}
+static int nft_commit(void){fprintf(stderr,"parental-control: nft commit pid=%ld dirty=%d\n",(long)getpid(),nft_dirty);int rc=nft_apply();if(rc==0){nft_dirty=0;json_object*a=arr();for(int i=0;i<(int)json_object_array_length(a)&&i<128;i++){json_object*d=json_object_array_get_idx(a,i);blocked_cache[i]=is_blocked(d,i)||whitelist_ready(d);whitelist_cache[i]=whitelist_ready(d);}}else{nft_dirty=1;fprintf(stderr,"parental-control: nftables apply failed; will retry\n");}return rc;}
 
 static int mac_valid(const char*m){if(!m||strlen(m)!=17)return 0;unsigned x[6];for(int i=0;i<17;i++){if(i%3==2){if(m[i]!=':')return 0;}else if(!isxdigit((unsigned char)m[i]))return 0;}if(sscanf(m,"%2x:%2x:%2x:%2x:%2x:%2x",&x[0],&x[1],&x[2],&x[3],&x[4],&x[5])!=6)return 0;if(x[0]&1)return 0;int all_zero=1,all_ff=1;for(int i=0;i<6;i++){if(x[i]!=0)all_zero=0;if(x[i]!=0xff)all_ff=0;}return !all_zero&&!all_ff;}
 static int id_valid(const char*id){if(!id||!*id||strlen(id)>63)return 0;for(const unsigned char*p=(const unsigned char*)id;*p;p++)if(!(isalnum(*p)||*p=='-'||*p=='_'||*p=='.'))return 0;return 1;}
