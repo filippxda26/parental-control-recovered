@@ -183,12 +183,51 @@ function card(device){
   $('h3',article).textContent=device.name||'Без имени';
   const linked=device.linked_devices||[];
   const deviceCount=linked.length;
-  $('.host',article).textContent=deviceCount?(`${deviceCount} ${deviceCount===1?'подключённое устройство':'подключённых устройства'}`):'';
+  const countWord=(()=>{
+    const n=deviceCount%100,m=n%10;
+    if(n>=11&&n<=14)return 'подключённых устройств';
+    if(m===1)return 'подключённое устройство';
+    if(m>=2&&m<=4)return 'подключённых устройства';
+    return 'подключённых устройств';
+  })();
+  $('.host',article).textContent=deviceCount?`${deviceCount} ${countWord}`:'';
   $('.host',article).hidden=!deviceCount;
-  const ips=(linked.length?linked.map(item=>item.ip).filter(Boolean):(device.ips?.length?device.ips:[device.ip].filter(Boolean)));
-  const macs=(linked.length?linked.map(item=>item.mac).filter(Boolean):(device.macs?.length?device.macs:[device.mac].filter(Boolean)));
-  $('.ip',article).textContent=ips.length===1?`${ips[0]} · определён автоматически`:ips.length?`${ips.join(', ')} · определены автоматически`:'не определён · устройство не подключено';
-  $('.mac',article).textContent=macs.join(', ')||'—';
+
+  const dl=article.querySelector('dl');
+  const ipRow=$('.ip',article).closest('div');
+  const macRow=$('.mac',article).closest('div');
+
+  if(linked.length){
+    ipRow.hidden=true;
+    macRow.hidden=true;
+
+    const list=document.createElement('div');
+    list.className='card-linked-devices';
+    list.style.cssText='display:grid;gap:10px;margin:14px 0';
+
+    linked.forEach((item,index)=>{
+      const box=document.createElement('div');
+      box.style.cssText='display:grid;gap:3px;padding-top:8px;border-top:1px solid rgba(127,127,127,.22)';
+
+      const title=document.createElement('strong');
+      title.textContent=item.hostname?`${index+1}. ${item.hostname}`:`${index+1}.`;
+      box.append(title);
+
+      const ip=document.createElement('span');
+      ip.textContent=`IP: ${item.ip||'не определён'}`;
+      const mac=document.createElement('span');
+      mac.textContent=`MAC: ${item.mac||'не определён'}`;
+      box.append(ip,mac);
+      list.append(box);
+    });
+
+    dl.before(list);
+  }else{
+    const ips=device.ips?.length?device.ips:[device.ip].filter(Boolean);
+    const macs=device.macs?.length?device.macs:[device.mac].filter(Boolean);
+    $('.ip',article).textContent=ips.length===1?`${ips[0]} · определён автоматически`:ips.length?`${ips.join(', ')} · определены автоматически`:'не определён · устройство не подключено';
+    $('.mac',article).textContent=macs.join(', ')||'—';
+  }
 
   const access=$('.access',article);
   if(!enabled){
@@ -208,7 +247,6 @@ function card(device){
     access.className='access '+(blocked?'blocked':'allowed');
   }
 
-  const dl=article.querySelector('dl');
   if(device.speed_limit_enabled&&!blocked){
     dl.after(usageLine('speed-limit',`Скорость ограничена: до ${Number(device.speed_limit_mbps)||0} Мбит/с`));
   }
