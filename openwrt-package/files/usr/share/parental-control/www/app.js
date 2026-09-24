@@ -1,6 +1,6 @@
 const $=(selector,root=document)=>root.querySelector(selector);
 const devices=$('#devices'),dialog=$('#editor'),form=$('#form');
-let socket=null,socketPromise=null,socketSeq=1,reconnectTimer=null,editing=null,latest=[],pairingCandidate=null;
+let socket=null,socketPromise=null,socketSeq=1,reconnectTimer=null,editing=null,latest=[];
 
 function socketUrl(){
   return `${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`;
@@ -182,7 +182,7 @@ function card(device){
   $('.host',article).textContent=hostText;
   $('.host',article).hidden=!hostText;
   $('.ip',article).textContent=device.ip?`${device.ip} · определён автоматически`:'не определён · устройство не подключено';
-  $('.mac',article).textContent=device.mac?`${device.mac}${device.mac_auto?' · определён автоматически':''}`:'—';
+  $('.mac',article).textContent=(device.macs?.length?device.macs:[device.mac].filter(Boolean)).join(', ')||'—';
 
   const access=$('.access',article);
   if(!enabled){
@@ -313,12 +313,6 @@ function renderState(data){
   $('#count-online').textContent=latest.filter(device=>device.ip).length;
   $('#count-blocked').textContent=latest.filter(device=>device.blocked).length;
   $('#service').textContent='Служба работает';
-  const pairing=$('#pairing'),info=$('#pairing-info'),candidate=data.connect_candidate;
-  const validCandidate=!!(candidate&&candidate.ip&&candidate.mac);
-  pairingCandidate=validCandidate?candidate:null;
-  pairing.hidden=!validCandidate;
-  info.textContent=validCandidate?`IP ${candidate.ip} · MAC ${candidate.mac}`:'';
-  $('#pairing-add').disabled=!validCandidate;
 }
 
 async function refresh(){
@@ -406,21 +400,6 @@ function closeEditor(){
   hostList.replaceChildren();
   editing=null;
   if(dialog.open)dialog.close();
-}
-
-$('#pairing-add').addEventListener('click',()=>{
-  const candidate=pairingCandidate;
-  if(!candidate){alert('Устройство больше не найдено. Откройте /connect ещё раз.');return;}
-  if(!candidate.mac){alert('MAC устройства ещё не определён. Откройте /connect на устройстве ещё раз.');return;}
-  openPairingCandidate(candidate);
-});
-
-function openPairingCandidate(candidate){
-  openEditor();
-  form.elements.mac.value=candidate.mac||'';
-  hostnameEnabled.checked=false;
-  hostList.querySelectorAll('input').forEach(input=>{input.value='';input.required=false;input.disabled=true});
-  syncHostnameEnabled();
 }
 
 function openEditor(device=null){
