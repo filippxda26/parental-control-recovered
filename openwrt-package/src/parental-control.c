@@ -186,8 +186,36 @@ static void state_device(json_object*out,json_object*d,int i){
 
     json_object_object_add(out,"mac",json_object_new_string(sval(d,"mac","")));
     json_object_object_add(out,"mac_auto",json_object_new_boolean(bval(d,"mac_auto",0)));
-    json_object*macs=json_object_new_array();for(int mi=0;mi<device_mac_count(d);mi++)json_object_array_add(macs,json_object_new_string(device_mac_at(d,mi)));json_object_object_add(out,"macs",macs);
-    json_object*ips=json_object_new_array();DhcpLease*state_leases=NULL;int state_lease_count=cached_leases(&state_leases);for(int li=0;li<state_lease_count;li++)if(device_has_mac(d,state_leases[li].mac)){int dup=0;for(int ii=0;ii<(int)json_object_array_length(ips);ii++)if(!strcmp(json_object_get_string(json_object_array_get_idx(ips,ii)),state_leases[li].ip)){dup=1;break;}if(!dup)json_object_array_add(ips,json_object_new_string(state_leases[li].ip));}json_object_object_add(out,"ips",ips);if(json_object_array_length(ips)>0)json_object_object_add(out,"ip",json_object_new_string(json_object_get_string(json_object_array_get_idx(ips,0))));
+    json_object*macs=json_object_new_array();
+    json_object*ips=json_object_new_array();
+    json_object*linked_devices=json_object_new_array();
+    DhcpLease*state_leases=NULL;
+    int state_lease_count=cached_leases(&state_leases);
+    for(int mi=0;mi<device_mac_count(d);mi++){
+        const char*m=device_mac_at(d,mi);
+        json_object_array_add(macs,json_object_new_string(m));
+        json_object*linked=json_object_new_object();
+        json_object_object_add(linked,"mac",json_object_new_string(m));
+        for(int li=0;li<state_lease_count;li++){
+            if(strcasecmp(state_leases[li].mac,m))continue;
+            if(*state_leases[li].ip){
+                json_object_object_add(linked,"ip",json_object_new_string(state_leases[li].ip));
+                int dup=0;
+                for(int ii=0;ii<(int)json_object_array_length(ips);ii++)
+                    if(!strcmp(json_object_get_string(json_object_array_get_idx(ips,ii)),state_leases[li].ip)){dup=1;break;}
+                if(!dup)json_object_array_add(ips,json_object_new_string(state_leases[li].ip));
+            }
+            if(*state_leases[li].host&&strcmp(state_leases[li].host,"*")&&strcmp(state_leases[li].host,"-"))
+                json_object_object_add(linked,"hostname",json_object_new_string(state_leases[li].host));
+            break;
+        }
+        json_object_array_add(linked_devices,linked);
+    }
+    json_object_object_add(out,"macs",macs);
+    json_object_object_add(out,"ips",ips);
+    json_object_object_add(out,"linked_devices",linked_devices);
+    if(json_object_array_length(ips)>0)
+        json_object_object_add(out,"ip",json_object_new_string(json_object_get_string(json_object_array_get_idx(ips,0))));
     json_object_object_add(out,"enabled",json_object_new_boolean(bval(d,"enabled",1)));
 
     json_object_object_add(out,"daily_limit_minutes",json_object_new_int(ival(d,"daily_limit_minutes",0)));
