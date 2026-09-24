@@ -172,7 +172,8 @@ static void state_device(json_object*out,json_object*d,int i){
     if(h)json_object_object_add(out,"hostnames",json_object_get(h));
     else {json_object*hs=json_object_new_array();if(*hostname)json_object_array_add(hs,json_object_new_string(hostname));json_object_object_add(out,"hostnames",hs);}
 
-    json_object_object_add(out,"mac",json_object_new_string(sval(d,"mac","")));\n    json_object_object_add(out,"mac_auto",json_object_new_boolean(bval(d,"mac_auto",0)));
+    json_object_object_add(out,"mac",json_object_new_string(sval(d,"mac","")));
+    json_object_object_add(out,"mac_auto",json_object_new_boolean(bval(d,"mac_auto",0)));
     char ip[64];dhcp(d,ip,sizeof ip);if(*ip)json_object_object_add(out,"ip",json_object_new_string(ip));
     json_object_object_add(out,"enabled",json_object_new_boolean(bval(d,"enabled",1)));
 
