@@ -191,26 +191,57 @@ static void state_device(json_object*out,json_object*d,int i){
     json_object*linked_devices=json_object_new_array();
     DhcpLease*state_leases=NULL;
     int state_lease_count=cached_leases(&state_leases);
-    for(int mi=0;mi<device_mac_count(d);mi++){
+    int mac_count=device_mac_count(d);
+    int mac_claimed[17]={0};
+    for(int mi=0;mi<mac_count;mi++)
+        json_object_array_add(macs,json_object_new_string(device_mac_at(d,mi)));
+
+    /* A configured Hostname is its own device. Resolve only that exact
+       Hostname to DHCP, then attach the matching IP/MAC to that row. */
+    json_object*cfg_hs=NULL;
+    if(json_object_object_get_ex(d,"hostnames",&cfg_hs)&&json_object_is_type(cfg_hs,json_type_array)){
+        for(int hi=0;hi<(int)json_object_array_length(cfg_hs);hi++){
+            const char*host=json_object_get_string(json_object_array_get_idx(cfg_hs,hi));
+            if(!host||!*host)continue;
+            json_object*linked=json_object_new_object();
+            json_object_object_add(linked,"hostname",json_object_new_string(host));
+
+            int found=-1,ambiguous=0;
+            for(int li=0;li<state_lease_count;li++){
+                if(!*state_leases[li].host||!strcmp(state_leases[li].host,"*")||!strcmp(state_leases[li].host,"-")||strcasecmp(state_leases[li].host,host))continue;
+                if(found<0)found=li;
+                else if(strcasecmp(state_leases[found].mac,state_leases[li].mac))ambiguous=1;
+            }
+            if(found>=0&&!ambiguous){
+                json_object_object_add(linked,"ip",json_object_new_string(state_leases[found].ip));
+                json_object_object_add(linked,"mac",json_object_new_string(state_leases[found].mac));
+                int dup=0;for(int ii=0;ii<(int)json_object_array_length(ips);ii++)if(!strcmp(json_object_get_string(json_object_array_get_idx(ips,ii)),state_leases[found].ip)){dup=1;break;}
+                if(!dup)json_object_array_add(ips,json_object_new_string(state_leases[found].ip));
+                for(int mi=0;mi<mac_count&&mi<17;mi++)if(!strcasecmp(device_mac_at(d,mi),state_leases[found].mac))mac_claimed[mi]=1;
+            }
+            json_object_array_add(linked_devices,linked);
+        }
+    }
+
+    /* MAC-only devices stay separate. Do not copy a DHCP Hostname into them:
+       a generic DHCP name such as "iPhone" is not the configured device name. */
+    for(int mi=0;mi<mac_count;mi++){
+        if(mi<17&&mac_claimed[mi])continue;
         const char*m=device_mac_at(d,mi);
-        json_object_array_add(macs,json_object_new_string(m));
         json_object*linked=json_object_new_object();
         json_object_object_add(linked,"mac",json_object_new_string(m));
         for(int li=0;li<state_lease_count;li++){
             if(strcasecmp(state_leases[li].mac,m))continue;
             if(*state_leases[li].ip){
                 json_object_object_add(linked,"ip",json_object_new_string(state_leases[li].ip));
-                int dup=0;
-                for(int ii=0;ii<(int)json_object_array_length(ips);ii++)
-                    if(!strcmp(json_object_get_string(json_object_array_get_idx(ips,ii)),state_leases[li].ip)){dup=1;break;}
+                int dup=0;for(int ii=0;ii<(int)json_object_array_length(ips);ii++)if(!strcmp(json_object_get_string(json_object_array_get_idx(ips,ii)),state_leases[li].ip)){dup=1;break;}
                 if(!dup)json_object_array_add(ips,json_object_new_string(state_leases[li].ip));
             }
-            if(*state_leases[li].host&&strcmp(state_leases[li].host,"*")&&strcmp(state_leases[li].host,"-"))
-                json_object_object_add(linked,"hostname",json_object_new_string(state_leases[li].host));
             break;
         }
         json_object_array_add(linked_devices,linked);
     }
+
     json_object_object_add(out,"macs",macs);
     json_object_object_add(out,"ips",ips);
     json_object_object_add(out,"linked_devices",linked_devices);
@@ -325,7 +356,55 @@ static int known_mac(const char *mac){json_object*a=arr();for(int i=0;i<(int)jso
 static int known_hostname(const char *host){json_object*a=arr();for(int i=0;i<(int)json_object_array_length(a);i++){json_object*d=json_object_array_get_idx(a,i),*hs;if(json_object_object_get_ex(d,"hostnames",&hs)&&json_object_is_type(hs,json_type_array))for(int k=0;k<(int)json_object_array_length(hs);k++)if(!strcasecmp(json_object_get_string(json_object_array_get_idx(hs,k)),host))return 1;}return 0;}
 static json_object *discover_devices(void){json_object*out=json_object_new_array();DhcpLease*leases=NULL;int n=cached_leases(&leases);for(int i=0;i<n;i++){if(known_mac(leases[i].mac))continue;int duplicate=0;for(int k=0;k<i;k++)if(!strcasecmp(leases[k].mac,leases[i].mac)){duplicate=1;break;}if(duplicate)continue;json_object*o=json_object_new_object();json_object_object_add(o,"mac",json_object_new_string(leases[i].mac));json_object_object_add(o,"ip",json_object_new_string(leases[i].ip));if(*leases[i].host&&strcmp(leases[i].host,"*")&&strcmp(leases[i].host,"-")){json_object_object_add(o,"hostname",json_object_new_string(leases[i].host));json_object*h=json_object_new_array();json_object_array_add(h,json_object_new_string(leases[i].host));json_object_object_add(o,"hostnames",h);}json_object_object_add(o,"lease_expires",json_object_new_int64(leases[i].expiry));json_object_array_add(out,o);}return out;}
 static int device_has_hostname(json_object*d,const char*host){json_object*hs;if(!host||!*host||!strcmp(host,"*")||!strcmp(host,"-"))return 0;if(json_object_object_get_ex(d,"hostnames",&hs)&&json_object_is_type(hs,json_type_array))for(int k=0;k<(int)json_object_array_length(hs);k++)if(!strcasecmp(json_object_get_string(json_object_array_get_idx(hs,k)),host))return 1;return 0;}
-static int sync_dhcp_macs(void){DhcpLease*leases=NULL;int lease_count=cached_leases(&leases),changed=0;json_object*a=arr();for(int i=0;i<(int)json_object_array_length(a)&&i<128;i++){json_object*d=json_object_array_get_idx(a,i);const char*old=sval(d,"mac","");int old_present=0;for(int l=0;l<lease_count;l++)if(device_has_mac(d,leases[l].mac)){old_present=1;break;}if(old_present)continue;int candidate=-1,ambiguous=0;for(int l=0;l<lease_count;l++){if(!device_has_hostname(d,leases[l].host)||!strcasecmp(old,leases[l].mac)||known_mac(leases[l].mac))continue;if(candidate<0)candidate=l;else if(strcasecmp(leases[candidate].mac,leases[l].mac))ambiguous=1;}if(ambiguous){fprintf(stderr,"parental-control: DHCP MAC update skipped device_id=%s reason=ambiguous-hostname\n",sval(d,"id",""));continue;}if(candidate<0)continue;char oldcopy[32];snprintf(oldcopy,sizeof oldcopy,"%s",old);json_object_object_add(d,"mac",json_object_new_string(leases[candidate].mac));json_object_object_add(d,"mac_auto",json_object_new_boolean(1));nft_dirty=1;int rc=nft_commit();if(rc==0){counters_seen[i]=0;previous_inbound[i]=previous_outbound[i]=0;last_active[i]=0;save();save_state();fprintf(stderr,"parental-control: DHCP update applied device_id=%s old_mac=%s new_mac=%s ip=%s nft_result=success\n",sval(d,"id",""),oldcopy,leases[candidate].mac,leases[candidate].ip);changed=1;}else{json_object_object_add(d,"mac",json_object_new_string(oldcopy));json_object_object_add(d,"mac_auto",json_object_new_boolean(0));nft_dirty=1;nft_commit();fprintf(stderr,"parental-control: DHCP update rejected device_id=%s old_mac=%s new_mac=%s ip=%s nft_result=failure\n",sval(d,"id",""),oldcopy,leases[candidate].mac,leases[candidate].ip);}}return changed;}
+static int sync_dhcp_macs(void){
+    DhcpLease*leases=NULL;int lease_count=cached_leases(&leases),changed=0;json_object*a=arr();
+    for(int i=0;i<(int)json_object_array_length(a)&&i<128;i++){
+        json_object*d=json_object_array_get_idx(a,i),*hs=NULL;
+        if(!json_object_object_get_ex(d,"hostnames",&hs)||!json_object_is_type(hs,json_type_array))continue;
+        for(int hi=0;hi<(int)json_object_array_length(hs);hi++){
+            const char*host=json_object_get_string(json_object_array_get_idx(hs,hi));
+            if(!host||!*host)continue;
+            int candidate=-1,ambiguous=0;
+            for(int l=0;l<lease_count;l++){
+                if(!*leases[l].host||!strcmp(leases[l].host,"*")||!strcmp(leases[l].host,"-")||strcasecmp(host,leases[l].host))continue;
+                if(candidate<0)candidate=l;
+                else if(strcasecmp(leases[candidate].mac,leases[l].mac))ambiguous=1;
+            }
+            if(ambiguous){fprintf(stderr,"parental-control: DHCP link skipped device_id=%s hostname=%s reason=ambiguous-hostname\n",sval(d,"id",""),host);continue;}
+            if(candidate<0)continue;
+            const char*newmac=leases[candidate].mac;
+            if(device_has_mac(d,newmac)||known_mac(newmac))continue;
+
+            int primary_added=0,linked_added=0;
+            json_object*lm=NULL;
+            if(!*sval(d,"mac","")){
+                json_object_object_add(d,"mac",json_object_new_string(newmac));
+                json_object_object_add(d,"mac_auto",json_object_new_boolean(1));
+                primary_added=1;
+            }else{
+                if(!json_object_object_get_ex(d,"linked_macs",&lm)||!json_object_is_type(lm,json_type_array)){
+                    lm=json_object_new_array();json_object_object_add(d,"linked_macs",lm);
+                }
+                if(json_object_array_length(lm)>=16){fprintf(stderr,"parental-control: DHCP link skipped device_id=%s hostname=%s reason=linked-mac-limit\n",sval(d,"id",""),host);continue;}
+                json_object_array_add(lm,json_object_new_string(newmac));
+                linked_added=1;
+            }
+
+            nft_dirty=1;int rc=nft_commit();
+            if(rc==0){
+                counters_seen[i]=0;previous_inbound[i]=previous_outbound[i]=0;last_active[i]=0;
+                save();save_state();changed=1;
+                fprintf(stderr,"parental-control: DHCP device linked device_id=%s hostname=%s mac=%s ip=%s nft_result=success\n",sval(d,"id",""),host,newmac,leases[candidate].ip);
+            }else{
+                if(primary_added){json_object_object_add(d,"mac",json_object_new_string(""));json_object_object_add(d,"mac_auto",json_object_new_boolean(0));}
+                if(linked_added&&lm&&json_object_array_length(lm)>0)json_object_array_del_idx(lm,json_object_array_length(lm)-1,1);
+                nft_dirty=1;nft_commit();
+                fprintf(stderr,"parental-control: DHCP device link rejected device_id=%s hostname=%s mac=%s ip=%s nft_result=failure\n",sval(d,"id",""),host,newmac,leases[candidate].ip);
+            }
+        }
+    }
+    return changed;
+}
 static void history_event(const char *device_id,const char *event){ensure_varlib();json_object*j=json_object_from_file(HISTORY);if(!j||!json_object_is_type(j,json_type_object)){if(j)json_object_put(j);j=json_object_new_object();}json_object*events;if(!json_object_object_get_ex(j,"events",&events)||!json_object_is_type(events,json_type_array)){events=json_object_new_array();json_object_object_add(j,"events",events);}json_object*o=json_object_new_object();json_object_object_add(o,"timestamp",json_object_new_int64(time(NULL)));json_object_object_add(o,"device_id",json_object_new_string(device_id?device_id:""));json_object_object_add(o,"event",json_object_new_string(event?event:""));json_object_array_add(events,o);while(json_object_array_length(events)>1000)json_object_array_del_idx(events,0,1);char tmp[256];snprintf(tmp,sizeof tmp,"%s.tmp",HISTORY);if(json_object_to_file_ext(tmp,j,JSON_C_TO_STRING_PRETTY)==0){if(rename(tmp,HISTORY)!=0){fprintf(stderr,"parental-control: rename %s -> %s failed: %s\n",tmp,HISTORY,strerror(errno));unlink(tmp);}}else{fprintf(stderr,"parental-control: write %s failed: %s\n",tmp,strerror(errno));unlink(tmp);}json_object_put(j);}
 static json_object *history_read(void){json_object*j=json_object_from_file(HISTORY),*events=NULL;if(!j||!json_object_is_type(j,json_type_object)){if(j)json_object_put(j);j=json_object_new_object();}if(!json_object_object_get_ex(j,"events",&events)||!json_object_is_type(events,json_type_array)){json_object_object_del(j,"events");json_object_object_add(j,"events",json_object_new_array());}return j;}
 static int field_type_if_present(json_object*d,const char*k,enum json_type t){json_object*v=NULL;return !json_object_object_get_ex(d,k,&v)||(v&&json_object_is_type(v,t));}
@@ -347,7 +426,7 @@ else if(!strcmp(path,"/api/discovered")){j=okmsg(NULL);json_object_object_add(j,
 else if(!strcmp(path,"/api/history")){j=okmsg(NULL);json_object*h=history_read(),*e=NULL;if(json_object_object_get_ex(h,"events",&e))json_object_object_add(j,"events",json_object_get(e));else json_object_object_add(j,"events",json_object_new_array());json_object_put(h);}
 else if(!strncmp(path,"/api/devices/",13)){char tmp[512];snprintf(tmp,sizeof tmp,"%s",path+13);char *slash=strchr(tmp,'/');if(slash)*slash++=0;int i=findid(tmp);if(i<0){j=okmsg("device not found");json_object_object_add(j,"success",json_object_new_boolean(0));code=404;}
 else if(!slash&&!strcmp(method,"DELETE")){history_event(tmp,"device deleted");json_object_array_del_idx(arr(),i,1);runtime_remove(i);save();nft_dirty=1;nft_commit();save_state();j=okmsg("device deleted");}
-else if(!slash&&!strcmp(method,"PUT")){json_object*d=json_tokener_parse(body);const char*err=validate_device(d,1);int duplicate=0;if(d){const char*newmac=sval(d,"mac","");if(*newmac)for(int k=0;k<(int)json_object_array_length(arr());k++)if(k!=i&&device_has_mac(json_object_array_get_idx(arr(),k),newmac))duplicate=1;json_object*hs=NULL;if(json_object_object_get_ex(d,"hostnames",&hs)&&json_object_is_type(hs,json_type_array))for(int h=0;h<(int)json_object_array_length(hs);h++){const char*host=json_object_get_string(json_object_array_get_idx(hs,h));for(int k=0;k<(int)json_object_array_length(arr());k++)if(k!=i&&device_has_hostname(json_object_array_get_idx(arr(),k),host))duplicate=1;}}if(err){j=okmsg(err);json_object_object_add(j,"success",json_object_new_boolean(0));code=400;if(d)json_object_put(d);}else if(duplicate){j=okmsg("duplicate hostname or MAC");json_object_object_add(j,"success",json_object_new_boolean(0));code=409;json_object_put(d);}else{json_object *old=json_object_array_get_idx(arr(),i),*v=NULL,*present=NULL;int mac_changed=strcasecmp(sval(old,"mac",""),sval(d,"mac",""))!=0;if(json_object_object_get_ex(old,"id",&v))json_object_object_add(d,"id",json_object_get(v));const char*preserve[]={"enabled","mac_auto","activity_threshold_bytes","idle_timeout_seconds","speed_limit_enabled","speed_limit_mbps","whitelist_enabled","whitelist_start","whitelist_end","whitelist_entries"};for(size_t k=0;k<sizeof(preserve)/sizeof(preserve[0]);k++){present=NULL;if(!json_object_object_get_ex(d,preserve[k],&present)&&json_object_object_get_ex(old,preserve[k],&v))json_object_object_add(d,preserve[k],json_object_get(v));}json_object_array_put_idx(arr(),i,d);if(mac_changed){counters_seen[i]=0;previous_inbound[i]=previous_outbound[i]=0;last_active[i]=0;}if(!bval(d,"daily_limit_enabled",0)){used_seconds[i]=0;bonus_minutes[i]=0;}if(!bval(d,"session_limit_enabled",0)||!bval(d,"break_enabled",0))session_seconds[i]=0;if(!bval(d,"break_enabled",0)){clear_break_state(i);}else if(bval(d,"session_limit_enabled",0)){int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim&&!break_active[i]){temporary_unblock[i]=0;start_break_state(i,ival(d,"break_minutes",0)*60);}}save();nft_dirty=1;nft_commit();save_state();history_event(tmp,"device updated");j=okmsg("device updated");}}
+else if(!slash&&!strcmp(method,"PUT")){json_object*d=json_tokener_parse(body);const char*err=validate_device(d,1);int duplicate=0;if(d){const char*newmac=sval(d,"mac","");if(*newmac)for(int k=0;k<(int)json_object_array_length(arr());k++)if(k!=i&&device_has_mac(json_object_array_get_idx(arr(),k),newmac))duplicate=1;json_object*lm_check=NULL;if(json_object_object_get_ex(d,"linked_macs",&lm_check)&&json_object_is_type(lm_check,json_type_array))for(int mi=0;mi<(int)json_object_array_length(lm_check);mi++){const char*mm=json_object_get_string(json_object_array_get_idx(lm_check,mi));for(int k=0;k<(int)json_object_array_length(arr());k++)if(k!=i&&device_has_mac(json_object_array_get_idx(arr(),k),mm))duplicate=1;}json_object*hs=NULL;if(json_object_object_get_ex(d,"hostnames",&hs)&&json_object_is_type(hs,json_type_array))for(int h=0;h<(int)json_object_array_length(hs);h++){const char*host=json_object_get_string(json_object_array_get_idx(hs,h));for(int k=0;k<(int)json_object_array_length(arr());k++)if(k!=i&&device_has_hostname(json_object_array_get_idx(arr(),k),host))duplicate=1;}}if(err){j=okmsg(err);json_object_object_add(j,"success",json_object_new_boolean(0));code=400;if(d)json_object_put(d);}else if(duplicate){j=okmsg("duplicate hostname or MAC");json_object_object_add(j,"success",json_object_new_boolean(0));code=409;json_object_put(d);}else{json_object *old=json_object_array_get_idx(arr(),i),*v=NULL,*present=NULL;int mac_changed=strcasecmp(sval(old,"mac",""),sval(d,"mac",""))!=0;if(json_object_object_get_ex(old,"id",&v))json_object_object_add(d,"id",json_object_get(v));const char*preserve[]={"enabled","mac_auto","activity_threshold_bytes","idle_timeout_seconds","speed_limit_enabled","speed_limit_mbps","whitelist_enabled","whitelist_start","whitelist_end","whitelist_entries"};for(size_t k=0;k<sizeof(preserve)/sizeof(preserve[0]);k++){present=NULL;if(!json_object_object_get_ex(d,preserve[k],&present)&&json_object_object_get_ex(old,preserve[k],&v))json_object_object_add(d,preserve[k],json_object_get(v));}json_object_array_put_idx(arr(),i,d);if(mac_changed){counters_seen[i]=0;previous_inbound[i]=previous_outbound[i]=0;last_active[i]=0;}if(!bval(d,"daily_limit_enabled",0)){used_seconds[i]=0;bonus_minutes[i]=0;}if(!bval(d,"session_limit_enabled",0)||!bval(d,"break_enabled",0))session_seconds[i]=0;if(!bval(d,"break_enabled",0)){clear_break_state(i);}else if(bval(d,"session_limit_enabled",0)){int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim&&!break_active[i]){temporary_unblock[i]=0;start_break_state(i,ival(d,"break_minutes",0)*60);}}save();nft_dirty=1;nft_commit();save_state();history_event(tmp,"device updated");j=okmsg("device updated");}}
 else if(slash&&!strcmp(method,"POST")){const char*ev="action applied";long long saved_used=used_seconds[i],saved_session=session_seconds[i],saved_bonus=bonus_minutes[i];int saved_break=break_active[i],saved_temp=temporary_unblock[i];time_t saved_until=brk_until[i],saved_until_mono=brk_until_mono[i];if(!strcmp(slash,"block")||!strcmp(slash,"unblock")){int old_manual=manual[i],old_temp=temporary_unblock[i];int requested=!strcmp(slash,"block"),auto_reason=automatic_blocked(json_object_array_get_idx(arr(),i),i);manual[i]=requested;temporary_unblock[i]=requested?0:auto_reason;counters_seen[i]=0;previous_inbound[i]=previous_outbound[i]=0;last_active[i]=0;nft_dirty=1;if(nft_commit()!=0){manual[i]=old_manual;temporary_unblock[i]=old_temp;nft_dirty=1;nft_commit();j=okmsg("nftables rule was not applied");json_object_object_add(j,"success",json_object_new_boolean(0));json_object_object_add(j,"nft_exit_status",json_object_new_int(1));code=500;response(c,code,j);json_object_put(j);return;}ev=requested?"blocked":"unblocked";}else if(!strcmp(slash,"break")){if(!bval(json_object_array_get_idx(arr(),i),"break_enabled",0)){j=okmsg("break is disabled");json_object_object_add(j,"success",json_object_new_boolean(0));code=400;response(c,code,j);json_object_put(j);return;}temporary_unblock[i]=0;start_break_state(i,ival(json_object_array_get_idx(arr(),i),"break_minutes",60)*60);ev="break started";}else if(!strcmp(slash,"bonus")){json_object*q=json_tokener_parse(body);int mins=q?ival(q,"minutes",0):0;if(q)json_object_put(q);if(mins<=0||mins>1440||bonus_minutes[i]+mins>1440){j=okmsg("invalid bonus");json_object_object_add(j,"success",json_object_new_boolean(0));response(c,400,j);json_object_put(j);return;}bonus_minutes[i]+=mins;ev="bonus added";}else if(!strcmp(slash,"reset-today")){used_seconds[i]=session_seconds[i]=bonus_minutes[i]=0;clear_break_state(i);temporary_unblock[i]=0;ev="today reset";}else if(!strcmp(slash,"reset_temporary_state")){temporary_unblock[i]=0;ev="temporary state reset";}else{j=okmsg("route not found");json_object_object_add(j,"success",json_object_new_boolean(0));code=404;response(c,code,j);json_object_put(j);return;}if(strcmp(slash,"block")&&strcmp(slash,"unblock")){nft_dirty=1;if(nft_commit()!=0){used_seconds[i]=saved_used;session_seconds[i]=saved_session;bonus_minutes[i]=saved_bonus;break_active[i]=saved_break;temporary_unblock[i]=saved_temp;brk_until[i]=saved_until;brk_until_mono[i]=saved_until_mono;nft_dirty=1;nft_commit();j=okmsg("nftables rule was not applied");json_object_object_add(j,"success",json_object_new_boolean(0));json_object_object_add(j,"nft_exit_status",json_object_new_int(1));code=500;response(c,code,j);json_object_put(j);return;}}save_state();history_event(tmp,ev);j=okmsg(ev);}else{j=okmsg("route not found");json_object_object_add(j,"success",json_object_new_boolean(0));code=404;}}
 else{j=okmsg("route not found");json_object_object_add(j,"success",json_object_new_boolean(0));code=404;}response(c,code,j);json_object_put(j);}
 int main(void){signal(SIGPIPE,SIG_IGN);root=json_object_from_file(DEVICES);if(!root){if(access(DEVICES,F_OK)==0){fprintf(stderr,"parental-control: failed to parse %s; refusing to replace it with an empty config\n",DEVICES);return 1;}root=json_object_new_object();json_object_object_add(root,"devices",json_object_new_array());save();}json_object*startup_devices=NULL;if(!json_object_is_type(root,json_type_object)||!json_object_object_get_ex(root,"devices",&startup_devices)||!json_object_is_type(startup_devices,json_type_array)||json_object_array_length(startup_devices)>128){fprintf(stderr,"parental-control: invalid %s: expected object with devices array (max 128)\n",DEVICES);return 1;}int config_normalized=0;for(int i=0;i<(int)json_object_array_length(startup_devices);i++){json_object*d=json_object_array_get_idx(startup_devices,i),*idv=NULL;int normalized=normalize_legacy_device(d);if(normalized<0){fprintf(stderr,"parental-control: invalid legacy field type in device %d in %s\n",i,DEVICES);return 1;}config_normalized|=normalized;const char*id=(json_object_object_get_ex(d,"id",&idv)&&json_object_is_type(idv,json_type_string))?json_object_get_string(idv):"";const char*err=validate_device(d,1);if(!id_valid(id)||err){fprintf(stderr,"parental-control: invalid device %d in %s: %s\n",i,DEVICES,!id_valid(id)?"invalid id":err);return 1;}for(int k=0;k<i;k++){json_object*other=json_object_array_get_idx(startup_devices,k);if(!strcmp(id,sval(other,"id",""))){fprintf(stderr,"parental-control: duplicate device id in %s\n",DEVICES);return 1;}for(int mi=0;mi<device_mac_count(d);mi++)if(device_has_mac(other,device_mac_at(d,mi))){fprintf(stderr,"parental-control: duplicate MAC in %s\n",DEVICES);return 1;}json_object*hs=NULL;if(json_object_object_get_ex(d,"hostnames",&hs)&&json_object_is_type(hs,json_type_array))for(int h=0;h<(int)json_object_array_length(hs);h++)if(device_has_hostname(other,json_object_get_string(json_object_array_get_idx(hs,h)))){fprintf(stderr,"parental-control: duplicate hostname in %s\n",DEVICES);return 1;}}}if(config_normalized){fprintf(stderr,"parental-control: normalized legacy device settings in %s\n",DEVICES);save();}unlink(SOCK);int s=socket(AF_UNIX,SOCK_STREAM,0);struct sockaddr_un a={.sun_family=AF_UNIX};strncpy(a.sun_path,SOCK,sizeof(a.sun_path)-1);mkdir("/var/run",0755);if(bind(s,(struct sockaddr*)&a,sizeof a)||listen(s,32)){perror("parental-control");return 1;}chmod(SOCK,0660);load_state();sync_dhcp_macs();save_state();nft_dirty=1;if(nft_commit()!=0){fprintf(stderr,"parental-control: initial nftables apply failed\n");close(s);unlink(SOCK);return 1;}activity_fd=open_activity_socket();pthread_t web_thread;if(pthread_create(&web_thread,NULL,web_thread_main,NULL)!=0){fprintf(stderr,"parental-control: failed to start integrated web server\n");close(s);unlink(SOCK);return 1;}pthread_detach(web_thread);for(;;){struct pollfd pfd={.fd=s,.events=POLLIN};int r=poll(&pfd,1,1000);tick();if(r>0&&(pfd.revents&POLLIN)){int c=accept(s,NULL,NULL);if(c>=0){struct timeval tv={.tv_sec=5,.tv_usec=0};setsockopt(c,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv);setsockopt(c,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof tv);handle(c);close(c);}}}}
