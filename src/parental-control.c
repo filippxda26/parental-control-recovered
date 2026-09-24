@@ -132,7 +132,7 @@ static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=monotonic_
         int idle=ival(d,"idle_timeout_seconds",300); if(!before&&!active&&last_active[i]&&idle>0&&mono-last_active[i]<=idle)active=1;
         if(!bval(d,"enabled",1))active=0;
         if(active&&!before){if(bval(d,"daily_limit_enabled",0)){used_seconds[i]+=dt;changed=1;}if(cycle&&!break_active[i]){session_seconds[i]+=dt;changed=1;int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim){temporary_unblock[i]=0;start_break_state(i,ival(d,"break_minutes",0)*60);changed=rules_changed=1;}}}
-        int after=is_blocked(d,i),wl=whitelist_ready(d),restricted=after||wl;if(after!=before||restricted!=blocked_cache[i]||wl!=whitelist_cache[i])rules_changed=1;if(wl&&!manual[i])whitelist_refresh_needed=1;
+        int after=is_blocked(d,i),wl=whitelist_ready(d),restricted=after||wl;if(after!=before||restricted!=blocked_cache[i]||wl!=whitelist_cache[i]){fprintf(stderr,"parental-control: nft refresh reason=state-change device_id=%s before=%d after=%d restricted=%d blocked_cache=%d whitelist=%d whitelist_cache=%d\n",sval(d,"id",""),before,after,restricted,blocked_cache[i],wl,whitelist_cache[i]);rules_changed=1;}if(wl&&!manual[i])whitelist_refresh_needed=1;
     }
     static time_t last_whitelist_refresh=0;if(whitelist_refresh_needed&&(last_whitelist_refresh==0||now_sync-last_whitelist_refresh>=300)){rules_changed=1;last_whitelist_refresh=now_sync;}
     if(changed||rules_changed)save_state();
