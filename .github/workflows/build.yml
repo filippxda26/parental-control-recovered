@@ -130,14 +130,19 @@ jobs:
       - name: Configure SDK
         working-directory: sdk
         run: |
-          echo 'CONFIG_PACKAGE_parental-control=m' > .config
-          if [ -f .parental-control-signing-enabled ]; then
-            echo 'CONFIG_SIGN_EACH_PACKAGE=y' >> .config
-          else
-            echo '# CONFIG_SIGN_EACH_PACKAGE is not set' >> .config
-          fi
+          {
+            echo 'CONFIG_PACKAGE_parental-control=m'
+            echo 'CONFIG_USE_APK=y'
+            if [ -f .parental-control-signing-enabled ]; then
+              echo 'CONFIG_SIGN_EACH_PACKAGE=y'
+            else
+              echo '# CONFIG_SIGN_EACH_PACKAGE is not set'
+            fi
+          } > .config
           make defconfig
-          grep -E '^(CONFIG_PACKAGE_parental-control|CONFIG_SIGN_EACH_PACKAGE=|# CONFIG_SIGN_EACH_PACKAGE)' .config
+
+          grep -E '^(CONFIG_PACKAGE_parental-control|CONFIG_USE_APK=|CONFIG_SIGN_EACH_PACKAGE=|# CONFIG_SIGN_EACH_PACKAGE)' .config
+          grep -qx 'CONFIG_USE_APK=y' .config
           if [ -f .parental-control-signing-enabled ]; then
             grep -qx 'CONFIG_SIGN_EACH_PACKAGE=y' .config
           fi
