@@ -26,7 +26,7 @@ static json_object *root; static int manual[128],break_active[128],temporary_unb
 static long long used_seconds[128], session_seconds[128], bonus_minutes[128];
 static unsigned long long previous_inbound[128], previous_outbound[128];
 static int counters_seen[128], blocked_cache[128], whitelist_cache[128], nft_dirty=1; static time_t last_active[128];
-static char reset_date[16]="";
+static char reset_date[16]=""; static char connect_ip[64]="",connect_mac[32]=""; static time_t connect_seen=0;
 static void ensure_varlib(void){mkdir("/var/lib",0755);mkdir("/var/lib/parental-control",0755);}
 static void date_now(char out[16]){time_t t=time(NULL);struct tm z;localtime_r(&t,&z);strftime(out,16,"%F",&z);}
 static time_t monotonic_now(void){struct timespec ts;if(clock_gettime(CLOCK_MONOTONIC,&ts)==0)return ts.tv_sec;return time(NULL);}
@@ -229,6 +229,7 @@ static void state_device(json_object*out,json_object*d,int i){
     if(enabled&&wl_enforced)json_object_array_add(rs,json_object_new_string("whitelist"));
     json_object_object_add(out,"block_reasons",rs);
 }
+static int arp_mac_for_ip(const char*ip,char*out,size_t n){FILE*f=fopen("/proc/net/arp","r");if(!f)return 0;char line[512],rip[64],mac[32];fgets(line,sizeof line,f);while(fgets(line,sizeof line,f)){unsigned flags=0;if(sscanf(line,"%63s %*s %x %31s",rip,&flags,mac)==3&&!strcmp(rip,ip)&&(flags&2)&&mac_valid(mac)){snprintf(out,n,"%s",mac);fclose(f);return 1;}}fclose(f);return 0;}
 static json_object *state_snapshot(void){
     json_object*j=okmsg("ok"),*ds=json_object_new_array();
     json_object*a=arr();
@@ -239,6 +240,7 @@ static json_object *state_snapshot(void){
     }
     json_object_object_add(j,"devices",ds);
     json_object_object_add(j,"state_timestamp",json_object_new_int64(time(NULL)));
+    if(connect_seen&&time(NULL)-connect_seen<=300){json_object*cc=json_object_new_object();json_object_object_add(cc,"ip",json_object_new_string(connect_ip));json_object_object_add(cc,"mac",json_object_new_string(connect_mac));json_object_object_add(cc,"seen_at",json_object_new_int64(connect_seen));json_object_object_add(j,"connect_candidate",cc);}
     return j;
 }
 static int nft_apply(void){
@@ -311,6 +313,7 @@ else if(!strcmp(path,"/api/health")||!strcmp(path,"/api/status")){j=okmsg("ok");
 else if(!strcmp(path,"/api/state")){j=state_snapshot();}
 else if(!strcmp(path,"/api/devices")&&!strcmp(method,"GET")){j=okmsg(NULL);json_object_object_add(j,"devices",json_object_get(arr()));}
 else if(!strcmp(path,"/api/devices")&&!strcmp(method,"POST")){json_object*d=json_tokener_parse(body);const char*err=validate_device(d,0);if(json_object_array_length(arr())>=128){j=okmsg("device limit reached");json_object_object_add(j,"success",json_object_new_boolean(0));code=400;if(d)json_object_put(d);}else if(err){j=okmsg(err);json_object_object_add(j,"success",json_object_new_boolean(0));code=400;if(d)json_object_put(d);}else if(*sval(d,"mac","")&&known_mac(sval(d,"mac",""))){j=okmsg("duplicate device id or MAC");json_object_object_add(j,"success",json_object_new_boolean(0));code=409;json_object_put(d);}else{json_object*vdefault=NULL;if(!json_object_object_get_ex(d,"enabled",&vdefault))json_object_object_add(d,"enabled",json_object_new_boolean(1));if(!json_object_object_get_ex(d,"mac_auto",&vdefault))json_object_object_add(d,"mac_auto",json_object_new_boolean(!*sval(d,"mac","")));if(!json_object_object_get_ex(d,"activity_threshold_bytes",&vdefault))json_object_object_add(d,"activity_threshold_bytes",json_object_new_int(1));if(!json_object_object_get_ex(d,"idle_timeout_seconds",&vdefault))json_object_object_add(d,"idle_timeout_seconds",json_object_new_int(300));json_object_object_del(d,"id");char id[64];const char*id_seed=sval(d,"mac","");char host_seed[128]={0};if(!*id_seed){json_object*hs=NULL;if(json_object_object_get_ex(d,"hostnames",&hs)&&json_object_is_type(hs,json_type_array)&&json_object_array_length(hs)>0){snprintf(host_seed,sizeof host_seed,"%s",json_object_get_string(json_object_array_get_idx(hs,0)));id_seed=host_seed;}}if(make_unique_device_id(id_seed,id)!=0){j=okmsg("unable to allocate device id");json_object_object_add(j,"success",json_object_new_boolean(0));code=409;json_object_put(d);}else{json_object_object_add(d,"id",json_object_new_string(id));json_object_array_add(arr(),d);save();nft_dirty=1;nft_commit();save_state();history_event(sval(d,"id",""),"device created");j=okmsg("device created");}}}
+else if(!strcmp(path,"/api/connect-candidate")&&!strcmp(method,"POST")){json_object*q=json_tokener_parse(body);const char*ip=q?sval(q,"ip",""):"";struct in_addr ia;char mac[32]={0};if(!*ip||inet_pton(AF_INET,ip,&ia)!=1||!arp_mac_for_ip(ip,mac,sizeof mac)){j=okmsg("device is not present in ARP table");json_object_object_add(j,"success",json_object_new_boolean(0));code=404;}else{snprintf(connect_ip,sizeof connect_ip,"%s",ip);snprintf(connect_mac,sizeof connect_mac,"%s",mac);connect_seen=time(NULL);j=okmsg("device detected");json_object_object_add(j,"ip",json_object_new_string(ip));json_object_object_add(j,"mac",json_object_new_string(mac));}if(q)json_object_put(q);}
 else if(!strcmp(path,"/api/discovered")){j=okmsg(NULL);json_object_object_add(j,"devices",discover_devices());}
 else if(!strcmp(path,"/api/history")){j=okmsg(NULL);json_object*h=history_read(),*e=NULL;if(json_object_object_get_ex(h,"events",&e))json_object_object_add(j,"events",json_object_get(e));else json_object_object_add(j,"events",json_object_new_array());json_object_put(h);}
 else if(!strncmp(path,"/api/devices/",13)){char tmp[512];snprintf(tmp,sizeof tmp,"%s",path+13);char *slash=strchr(tmp,'/');if(slash)*slash++=0;int i=findid(tmp);if(i<0){j=okmsg("device not found");json_object_object_add(j,"success",json_object_new_boolean(0));code=404;}
