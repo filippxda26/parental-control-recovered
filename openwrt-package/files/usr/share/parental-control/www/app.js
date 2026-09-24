@@ -152,6 +152,7 @@ function deviceUiSignature(device){
     whitelist_start:device.whitelist_start||'',
     whitelist_end:device.whitelist_end||'',
     whitelist_entries:device.whitelist_entries||[],
+    traffic_idle:!!device.traffic_idle,
     night_start:device.night_start||'',
     night_end:device.night_end||''
   });
@@ -234,6 +235,7 @@ function card(device){
     const lines=[];
     if(cycle)lines.push(usageLine('cycle-mode',`Режим: ${device.session_limit_minutes} мин. пользования / ${device.break_minutes} мин. отдыха`));
     if(cycle)lines.push(usageLine('session-left'));
+    if(cycle)lines.push(usageLine('traffic-status'));
     lines.push(usageLine('rest-status'));
     lines.push(usageLine('rest-left'));
     anchor.after(...lines);
@@ -282,12 +284,14 @@ function syncLiveCard(device,element=null){
   }
 
   const session=element.querySelector('.session-left');
+  const trafficStatus=element.querySelector('.traffic-status');
   const restStatus=element.querySelector('.rest-status');
   const restLeft=element.querySelector('.rest-left');
   if(session){
     session.hidden=!!device.break_active;
     session.textContent=`До отдыха осталось: ${duration(device.session_remaining_seconds)}`;
   }
+  if(trafficStatus){trafficStatus.hidden=!device.traffic_idle;trafficStatus.textContent='Устройство не имеет трафика';}
   if(restStatus)restStatus.textContent=device.break_active?'Отдых: активен':'Отдых: неактивен';
   if(restLeft){
     restLeft.hidden=!device.break_active;
