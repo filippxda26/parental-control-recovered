@@ -193,12 +193,11 @@ jobs:
             test -s sdk/public-key.pem
             cp sdk/public-key.pem artifacts/parental-control-signing-public-key.pem
 
-            mkdir -p .apk-verify-root/etc/apk/keys
-            cp sdk/public-key.pem .apk-verify-root/etc/apk/keys/parental-control.pem
+            mkdir -p .apk-verify-keys
+            cp sdk/public-key.pem .apk-verify-keys/parental-control.pem
             for package in artifacts/parental-control*.apk; do
               sdk/staging_dir/host/bin/apk \
-                --root "$PWD/.apk-verify-root" \
-                --keys-dir /etc/apk/keys \
+                --keys-dir "$PWD/.apk-verify-keys" \
                 verify "$PWD/$package"
             done
 
