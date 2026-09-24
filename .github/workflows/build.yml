@@ -26,7 +26,7 @@ jobs:
       - name: Install host tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential curl zstd rsync file gawk gettext libncurses-dev python3 libjson-c-dev nodejs
+          sudo apt-get install -y build-essential curl zstd rsync file gawk gettext libncurses-dev python3 libjson-c-dev nodejs openssl
 
       - name: Native lint and compile checks
         run: |
@@ -55,6 +55,25 @@ jobs:
           tar --zstd -xf "$SDK_FILE" -C sdk --strip-components=1
 
 
+      - name: Prepare APK signing key
+        if: github.event_name != 'pull_request'
+        working-directory: sdk
+        env:
+          APK_PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APK_PRIVATE_KEY" ]; then
+            echo "::notice::APK_PRIVATE_KEY is not configured; building an unsigned APK."
+            exit 0
+          fi
+          umask 077
+          printf '%s\n' "$APK_PRIVATE_KEY" > private-key.pem
+          openssl ec -in private-key.pem -check -noout
+          openssl ec -in private-key.pem -pubout -out public-key.pem
+          chmod 600 private-key.pem
+          chmod 644 public-key.pem
+          touch .parental-control-signing-enabled
+          echo "APK signing key prepared."
+
       - name: Prepare libjson-c feed only
         working-directory: sdk
         run: |
@@ -76,7 +95,16 @@ jobs:
         working-directory: sdk
         run: |
           echo 'CONFIG_PACKAGE_parental-control=m' > .config
+          if [ -f .parental-control-signing-enabled ]; then
+            echo 'CONFIG_SIGN_EACH_PACKAGE=y' >> .config
+          else
+            echo '# CONFIG_SIGN_EACH_PACKAGE is not set' >> .config
+          fi
           make defconfig
+          grep -E '^(CONFIG_PACKAGE_parental-control|CONFIG_SIGN_EACH_PACKAGE=|# CONFIG_SIGN_EACH_PACKAGE)' .config
+          if [ -f .parental-control-signing-enabled ]; then
+            grep -qx 'CONFIG_SIGN_EACH_PACKAGE=y' .config
+          fi
 
       - name: Build APK
         working-directory: sdk
@@ -89,6 +117,17 @@ jobs:
           mkdir -p artifacts
           find sdk/bin -type f -name 'parental-control*.apk' -print -exec cp -v {} artifacts/ \;
           test -n "$(find artifacts -type f -name 'parental-control*.apk' -print -quit)"
+          if [ -f sdk/.parental-control-signing-enabled ]; then
+            test -s sdk/public-key.pem
+            cp sdk/public-key.pem artifacts/parental-control-signing-public-key.pem
+            {
+              echo 'signed=true'
+              printf 'public_key_sha256='
+              openssl pkey -pubin -in sdk/public-key.pem -outform DER | sha256sum | awk '{print $1}'
+            } > artifacts/SIGNING.txt
+          else
+            echo 'signed=false' > artifacts/SIGNING.txt
+          fi
           ls -lh artifacts
           sha256sum artifacts/*.apk | tee artifacts/SHA256SUMS
 
