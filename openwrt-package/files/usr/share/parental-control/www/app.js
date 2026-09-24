@@ -410,7 +410,6 @@ function closeEditor(){
 
 function openPairingCandidate(candidate){
   openEditor();
-  form.elements.name.value='Люба';
   form.elements.mac.value=candidate.mac||'';
   hostnameEnabled.checked=false;
   hostList.querySelectorAll('input').forEach(input=>{input.value='';input.required=false;input.disabled=true});
