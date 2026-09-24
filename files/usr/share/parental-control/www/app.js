@@ -316,12 +316,14 @@ function renderState(data){
   const pairing=$('#pairing'),candidate=data.connect_candidate;
   pairing.hidden=!candidate;
   if(candidate){
-    pairing.dataset.ip=candidate.ip||'';
-    pairing.dataset.mac=candidate.mac||'';
-    $('#pairing-info').textContent=`IP ${candidate.ip} · MAC ${candidate.mac}`;
+    $('#pairing-info').textContent=`IP ${candidate.ip||'—'} · MAC ${candidate.mac||'—'}`;
+    $('#pairing-add').onclick=event=>{
+      event.preventDefault();
+      if(!candidate.mac){alert('MAC устройства ещё не определён. Откройте /connect на устройстве ещё раз.');return;}
+      openPairingCandidate(candidate);
+    };
   }else{
-    delete pairing.dataset.ip;
-    delete pairing.dataset.mac;
+    $('#pairing-add').onclick=null;
   }
 }
 
@@ -411,14 +413,6 @@ function closeEditor(){
   editing=null;
   if(dialog.open)dialog.close();
 }
-
-$('#pairing-add').addEventListener('click',event=>{
-  event.preventDefault();
-  const pairing=$('#pairing');
-  const candidate={ip:pairing.dataset.ip||'',mac:pairing.dataset.mac||''};
-  if(!candidate.mac){alert('MAC устройства ещё не определён. Откройте /connect на устройстве ещё раз.');return;}
-  openPairingCandidate(candidate);
-});
 
 function openPairingCandidate(candidate){
   openEditor();
