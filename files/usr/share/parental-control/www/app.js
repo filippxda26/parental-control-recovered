@@ -198,8 +198,8 @@ function card(device){
   const macRow=$('.mac',article).closest('div');
 
   if(linked.length){
-    ipRow.hidden=true;
-    macRow.hidden=true;
+    ipRow.style.display='none';
+    macRow.style.display='none';
 
     const list=document.createElement('div');
     list.className='card-linked-devices';
@@ -223,6 +223,8 @@ function card(device){
 
     dl.before(list);
   }else{
+    ipRow.style.display='';
+    macRow.style.display='';
     const ips=device.ips?.length?device.ips:[device.ip].filter(Boolean);
     const macs=device.macs?.length?device.macs:[device.mac].filter(Boolean);
     $('.ip',article).textContent=ips.length===1?`${ips[0]} · определён автоматически`:ips.length?`${ips.join(', ')} · определены автоматически`:'не определён · устройство не подключено';
