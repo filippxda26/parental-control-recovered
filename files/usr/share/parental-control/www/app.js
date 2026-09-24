@@ -114,6 +114,7 @@ function reasonLabels(device){
   if(active.has('night'))reasons.push('ночная блокировка');
   if(active.has('break'))reasons.push('отдых');
   if(active.has('daily_limit'))reasons.push('ограничение времени на день');
+  if(active.has('whitelist'))reasons.push('режим Whitelist');
   return reasons;
 }
 
@@ -147,6 +148,7 @@ function deviceUiSignature(device){
     speed_limit_mbps:Number(device.speed_limit_mbps)||0,
     whitelist_enabled:!!device.whitelist_enabled,
     whitelist_active:!!device.whitelist_active,
+    whitelist_enforced:!!device.whitelist_enforced,
     whitelist_start:device.whitelist_start||'',
     whitelist_end:device.whitelist_end||'',
     whitelist_entries:device.whitelist_entries||[],
@@ -184,11 +186,14 @@ function card(device){
   if(!enabled){
     access.textContent='Контроль отключён';
     access.className='access';
+  }else if(manual){
+    access.textContent='Доступ заблокирован';
+    access.className='access blocked';
+  }else if(device.whitelist_enforced){
+    access.textContent='Только Whitelist';
+    access.className='access allowed';
   }else if(temporary){
     access.textContent='Временно разрешён';
-    access.className='access allowed';
-  }else if(blocked&&device.whitelist_active&&(device.whitelist_entries||[]).length){
-    access.textContent='Только Whitelist';
     access.className='access allowed';
   }else{
     access.textContent=blocked?'Доступ заблокирован':'Интернет разрешён';
@@ -201,7 +206,7 @@ function card(device){
   }
   if(device.whitelist_enabled){
     const entries=(device.whitelist_entries||[]).length;
-    const status=device.whitelist_active?'активен':'неактивен';
+    const status=device.whitelist_enforced?'активен':device.whitelist_active?'отключён полной блокировкой':'неактивен';
     dl.after(usageLine('whitelist-status',`Whitelist: ${status}, ${entries} адресов · ${device.whitelist_start||''}–${device.whitelist_end||''}`));
   }
   const reasons=reasonLabels(device);
