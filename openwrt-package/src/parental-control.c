@@ -239,14 +239,14 @@ static int nft_apply(void){
     fprintf(f,"destroy table inet parental_control\nadd table inet parental_control\nadd chain inet parental_control pc_forward { type filter hook forward priority -5; policy accept; }\nadd chain inet parental_control pc_input { type filter hook input priority -5; policy accept; }\n");
     json_object*a=arr();
     for(int i=0;i<(int)json_object_array_length(a)&&i<128;i++){
-        json_object*d=json_object_array_get_idx(a,i);int block=is_blocked(d,i);const char*m=sval(d,"mac","");const char*id=sval(d,"id","");
+        json_object*d=json_object_array_get_idx(a,i);int block=is_blocked(d,i);const char*m=sval(d,"mac","");const char*id=sval(d,"id","");char device_ip[64];dhcp(d,device_ip,sizeof device_ip);struct in_addr device_ip4;int have_ip4=*device_ip&&inet_pton(AF_INET,device_ip,&device_ip4)==1;
         fprintf(f,"add rule inet parental_control pc_forward ether saddr %s counter comment \"pc:%s:out\"\n",m,id);
-        fprintf(f,"add rule inet parental_control pc_forward ether daddr %s counter comment \"pc:%s:in\"\n",m,id);
+        if(have_ip4)fprintf(f,"add rule inet parental_control pc_forward ip daddr %s counter comment \"pc:%s:in\"\n",device_ip,id);else fprintf(f,"add rule inet parental_control pc_forward ether daddr %s counter comment \"pc:%s:in\"\n",m,id);
         if(block){
             json_object*wle=NULL;int wl=whitelist_active(d)&&json_object_object_get_ex(d,"whitelist_entries",&wle)&&json_object_is_type(wle,json_type_array)&&json_object_array_length(wle)>0;
             if(wl)nft_whitelist_rules(f,d,m,id);
             fprintf(f,"add rule inet parental_control pc_forward ether saddr %s drop comment \"pc:%s:forward-src\"\n",m,id);
-            fprintf(f,"add rule inet parental_control pc_forward ether daddr %s drop comment \"pc:%s:forward-dst\"\n",m,id);
+            if(have_ip4)fprintf(f,"add rule inet parental_control pc_forward ip daddr %s drop comment \"pc:%s:forward-dst\"\n",device_ip,id);else fprintf(f,"add rule inet parental_control pc_forward ether daddr %s drop comment \"pc:%s:forward-dst\"\n",m,id);
             fprintf(f,"add rule inet parental_control pc_input ether saddr %s udp dport 67 accept comment \"pc:%s:input-dhcp4\"\n",m,id);
             fprintf(f,"add rule inet parental_control pc_input ether saddr %s udp dport 547 accept comment \"pc:%s:input-dhcp6\"\n",m,id);
             if(wl){fprintf(f,"add rule inet parental_control pc_input ether saddr %s udp dport 53 accept comment \"pc:%s:input-dns-udp\"\n",m,id);fprintf(f,"add rule inet parental_control pc_input ether saddr %s tcp dport 53 accept comment \"pc:%s:input-dns-tcp\"\n",m,id);}
@@ -254,7 +254,7 @@ static int nft_apply(void){
         }else if(bval(d,"speed_limit_enabled",0)&&ival(d,"speed_limit_mbps",0)>0){
             int kbytes_per_sec=ival(d,"speed_limit_mbps",0)*125;
             fprintf(f,"add rule inet parental_control pc_forward ether saddr %s limit rate over %d kbytes/second drop comment \"pc:%s:speed-up\"\n",m,kbytes_per_sec,id);
-            fprintf(f,"add rule inet parental_control pc_forward ether daddr %s limit rate over %d kbytes/second drop comment \"pc:%s:speed-down\"\n",m,kbytes_per_sec,id);
+            if(have_ip4)fprintf(f,"add rule inet parental_control pc_forward ip daddr %s limit rate over %d kbytes/second drop comment \"pc:%s:speed-down\"\n",device_ip,kbytes_per_sec,id);else fprintf(f,"add rule inet parental_control pc_forward ether daddr %s limit rate over %d kbytes/second drop comment \"pc:%s:speed-down\"\n",m,kbytes_per_sec,id);
         }
     }
     fclose(f);int rc=system("/usr/sbin/nft -f " NFT_RULES " >/dev/null 2>&1 || /usr/bin/nft -f " NFT_RULES " >/dev/null 2>&1");return rc;
