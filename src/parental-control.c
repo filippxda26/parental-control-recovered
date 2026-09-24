@@ -191,13 +191,13 @@ static void state_device(json_object*out,json_object*d,int i){
     json_object_object_add(out,"whitelist_start",json_object_new_string(sval(d,"whitelist_start","08:00")));
     json_object_object_add(out,"whitelist_end",json_object_new_string(sval(d,"whitelist_end","22:00")));
     json_object_object_add(out,"whitelist_active",json_object_new_boolean(whitelist_active(d)));
-    json_object_object_add(out,"whitelist_enforced",json_object_new_boolean(wl_enforced));
     json_object*wl_entries=NULL;if(json_object_object_get_ex(d,"whitelist_entries",&wl_entries)&&json_object_is_type(wl_entries,json_type_array))json_object_object_add(out,"whitelist_entries",json_object_get(wl_entries));else json_object_object_add(out,"whitelist_entries",json_object_new_array());
 
     long long runtime_break_left=break_left(i);int n=night(d),ba=bval(d,"break_enabled",0)&&runtime_break_left>0;
     int daily_limit=ival(d,"daily_limit_minutes",0)*60+(int)bonus_minutes[i]*60;
     int dl=bval(d,"daily_limit_enabled",0)&&daily_limit>0&&used_seconds[i]>=daily_limit;
     int enabled=bval(d,"enabled",1),hard_blocked=is_blocked(d,i),wl_enforced=whitelist_ready(d)&&!manual[i],blocked=hard_blocked||wl_enforced;
+    json_object_object_add(out,"whitelist_enforced",json_object_new_boolean(wl_enforced));
     long long session_limit=(long long)ival(d,"session_limit_minutes",60)*60;
     long long session_remaining=session_limit-session_seconds[i];if(session_remaining<0)session_remaining=0;
     long long daily_remaining=(long long)daily_limit-used_seconds[i];if(daily_remaining<0)daily_remaining=0;
