@@ -234,7 +234,9 @@ jobs:
           test -n "$RELEASE"
           FULL_VERSION="${VERSION}-r${RELEASE}"
           OUT="artifacts/parental-control-${FULL_VERSION}.apk"
-          cp "$APK" "$OUT"
+          if [ "$APK" != "$OUT" ]; then
+            cp "$APK" "$OUT"
+          fi
           TAG="parental-control-${FULL_VERSION}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$OUT" --clobber
