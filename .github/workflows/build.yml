@@ -69,35 +69,39 @@ jobs:
 
           umask 077
 
-          if [ -n "$APK_PRIVATE_KEY_B64" ]; then
-            printf '%s' "$APK_PRIVATE_KEY_B64" | tr -d '\r\n ' | base64 -d > private-key.pem
-          else
-            python3 - <<'PY'
+          python3 - <<'PY'
           import base64
           import os
           from pathlib import Path
 
-          raw = os.environ["APK_PRIVATE_KEY"].strip()
+          # Prefer APK_PRIVATE_KEY_B64 when present, but accept either variable
+          # as multiline PEM, escaped-newline PEM, or base64-encoded PEM.
+          raw = (os.environ.get("APK_PRIVATE_KEY_B64") or os.environ.get("APK_PRIVATE_KEY") or "").strip()
 
-          # Accept a secret pasted with surrounding quotes.
           if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in {"'", '"'}:
               raw = raw[1:-1].strip()
 
-          # Normalize Windows line endings and secrets pasted as one line with literal \n.
           raw = raw.replace("\r\n", "\n").replace("\r", "\n")
           if "-----BEGIN" in raw and "\\n" in raw:
               raw = raw.replace("\\n", "\n")
 
-          # Also accept base64-encoded PEM in APK_PRIVATE_KEY itself.
           if "-----BEGIN" not in raw:
+              compact = "".join(raw.split())
               try:
-                  raw = base64.b64decode("".join(raw.split()), validate=True).decode("utf-8")
+                  decoded = base64.b64decode(compact, validate=True)
+                  raw = decoded.decode("utf-8")
               except Exception as exc:
-                  raise SystemExit(f"APK_PRIVATE_KEY is neither PEM nor valid base64 PEM: {exc}")
+                  raise SystemExit(
+                      "Signing secret is not valid PEM or base64-encoded PEM. "
+                      "Paste only the key value, without shell prompt/command text. "
+                      f"Decoder error: {exc}"
+                  )
+
+          if "-----BEGIN" not in raw or "PRIVATE KEY-----" not in raw:
+              raise SystemExit("Signing secret decoded, but it is not a PEM private key.")
 
           Path("private-key.pem").write_text(raw.strip() + "\n", encoding="utf-8", newline="\n")
           PY
-          fi
 
           chmod 600 private-key.pem
           openssl pkey -in private-key.pem -check -noout
