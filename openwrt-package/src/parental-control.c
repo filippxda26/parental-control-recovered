@@ -229,7 +229,7 @@ static void state_device(json_object*out,json_object*d,int i){
     if(enabled&&wl_enforced)json_object_array_add(rs,json_object_new_string("whitelist"));
     json_object_object_add(out,"block_reasons",rs);
 }
-static int arp_mac_for_ip(const char*ip,char*out,size_t n){FILE*f=fopen("/proc/net/arp","r");if(!f)return 0;char line[512],rip[64],mac[32];fgets(line,sizeof line,f);while(fgets(line,sizeof line,f)){unsigned flags=0;if(sscanf(line,"%63s %*s %x %31s",rip,&flags,mac)==3&&!strcmp(rip,ip)&&(flags&2)&&mac_valid(mac)){snprintf(out,n,"%s",mac);fclose(f);return 1;}}fclose(f);return 0;}
+static int arp_mac_for_ip(const char*ip,char*out,size_t n){FILE*f=fopen("/proc/net/arp","r");if(!f)return 0;char line[512],rip[64],mac[32];if(!fgets(line,sizeof line,f)){fclose(f);return 0;}while(fgets(line,sizeof line,f)){unsigned flags=0;if(sscanf(line,"%63s %*s %x %31s",rip,&flags,mac)==3&&!strcmp(rip,ip)&&(flags&2)&&mac_valid(mac)){snprintf(out,n,"%s",mac);fclose(f);return 1;}}fclose(f);return 0;}
 static json_object *state_snapshot(void){
     json_object*j=okmsg("ok"),*ds=json_object_new_array();
     json_object*a=arr();
