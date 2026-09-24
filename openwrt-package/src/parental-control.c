@@ -251,7 +251,7 @@ static int nft_apply(void){
     fprintf(f,"destroy table inet parental_control\nadd table inet parental_control\nadd chain inet parental_control pc_forward { type filter hook forward priority -5; policy accept; }\nadd chain inet parental_control pc_input { type filter hook input priority -5; policy accept; }\n");
     json_object*a=arr();
     for(int i=0;i<(int)json_object_array_length(a)&&i<128;i++){
-        json_object*d=json_object_array_get_idx(a,i);int hard_block=is_blocked(d,i),wl=whitelist_ready(d)&&!manual[i],block=hard_block||wl;const char*m=sval(d,"mac","");const char*id=sval(d,"id","");char device_ip[64];dhcp(d,device_ip,sizeof device_ip);struct in_addr device_ip4;int have_ip4=*device_ip&&inet_pton(AF_INET,device_ip,&device_ip4)==1;char device_ip6[8][INET6_ADDRSTRLEN];int ip6_count=ipv6_neighbors_for_mac(m,device_ip6,8);
+        json_object*d=json_object_array_get_idx(a,i);int hard_block=is_blocked(d,i),wl=whitelist_ready(d)&&!manual[i],block=hard_block||wl;const char*m=sval(d,"mac","");const char*id=sval(d,"id","");if(!*m)continue;char device_ip[64];dhcp(d,device_ip,sizeof device_ip);struct in_addr device_ip4;int have_ip4=*device_ip&&inet_pton(AF_INET,device_ip,&device_ip4)==1;char device_ip6[8][INET6_ADDRSTRLEN];int ip6_count=ipv6_neighbors_for_mac(m,device_ip6,8);
         fprintf(f,"add rule inet parental_control pc_forward ether saddr %s counter comment \"pc:%s:out\"\n",m,id);
         if(have_ip4)fprintf(f,"add rule inet parental_control pc_forward ip daddr %s counter comment \"pc:%s:in\"\n",device_ip,id);
         for(int v6=0;v6<ip6_count;v6++)fprintf(f,"add rule inet parental_control pc_forward ip6 daddr %s counter comment \"pc:%s:in\"\n",device_ip6[v6],id);
