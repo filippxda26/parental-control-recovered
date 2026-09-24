@@ -106,7 +106,7 @@ static int read_nft_counters(unsigned long long *inb,unsigned long long *outb){
         char *c=strstr(line,"comment \"pc:"); if(!c) continue;
         char *bp=strstr(line," bytes "); if(!bp) continue; unsigned long long bytes=strtoull(bp+7,NULL,10);
         c+=12; char *e=strchr(c,'\"'); if(!e)continue; *e=0; char *dir=strrchr(c,':'); if(!dir)continue; *dir++=0;
-        int i=findid(c); if(i<0)continue; if(!strcmp(dir,"in"))inb[i]=bytes; else if(!strcmp(dir,"out"))outb[i]=bytes; else continue; found=1;
+        int i=findid(c); if(i<0)continue; if(!strcmp(dir,"in"))inb[i]+=bytes; else if(!strcmp(dir,"out"))outb[i]+=bytes; else continue; found=1;
     } int rc=pclose(f);if(rc!=0)return-1;return found;
 }
 static int automatic_blocked(json_object*d,int i){if(!bval(d,"enabled",1))return 0;long long lim=(long long)ival(d,"daily_limit_minutes",0)*60+bonus_minutes[i]*60;return night(d)||(bval(d,"break_enabled",0)&&break_left(i)>0)||(bval(d,"daily_limit_enabled",0)&&lim>0&&used_seconds[i]>=lim);}
@@ -152,6 +152,7 @@ static int lease_active(long long expiry){return expiry==0||expiry>(long long)ti
 static int read_leases(DhcpLease*out,int max){FILE*f=fopen("/tmp/dhcp.leases","r");if(!f)return 0;int n=0;char line[768];while(n<max&&fgets(line,sizeof line,f)){long long expiry=0;char mac[32]={0},ip[64]={0},host[128]={0};int fields=sscanf(line,"%lld %31s %63s %127s",&expiry,mac,ip,host);if(fields<3||!lease_active(expiry)||!mac_valid(mac))continue;out[n].expiry=expiry;snprintf(out[n].mac,sizeof out[n].mac,"%s",mac);snprintf(out[n].ip,sizeof out[n].ip,"%s",ip);snprintf(out[n].host,sizeof out[n].host,"%s",fields>=4?host:"");n++;}fclose(f);return n;}
 static int cached_leases(DhcpLease**out){time_t now=time(NULL);if(lease_cache_at!=now){lease_cache_count=read_leases(lease_cache,256);lease_cache_at=now;}*out=lease_cache;return lease_cache_count;}
 static void dhcp(json_object*d,char *ip,size_t ni){ip[0]=0;DhcpLease*leases=NULL;int n=cached_leases(&leases);const char*want=sval(d,"mac","");for(int i=0;i<n;i++)if(!strcasecmp(leases[i].mac,want)){snprintf(ip,ni,"%s",leases[i].ip);return;}}
+static int ipv6_neighbors_for_mac(const char*mac,char out[][INET6_ADDRSTRLEN],int max){if(!mac||!*mac||max<=0)return 0;FILE*f=popen("(ip -6 neigh show 2>/dev/null || /sbin/ip -6 neigh show 2>/dev/null || /usr/sbin/ip -6 neigh show 2>/dev/null)","r");if(!f)return 0;char line[512];int n=0;while(n<max&&fgets(line,sizeof line,f)){char ip[INET6_ADDRSTRLEN]={0},ll[32]={0};if(sscanf(line,"%45s",ip)!=1)continue;char*p=strstr(line," lladdr ");if(!p||sscanf(p+8,"%31s",ll)!=1||strcasecmp(ll,mac))continue;struct in6_addr a6;if(inet_pton(AF_INET6,ip,&a6)!=1)continue;int dup=0;for(int i=0;i<n;i++)if(!strcmp(out[i],ip)){dup=1;break;}if(!dup)snprintf(out[n++],INET6_ADDRSTRLEN,"%s",ip);}pclose(f);return n;}
 static int time_valid(const char*s){if(!s||strlen(s)!=5||s[2]!=':'||!isdigit((unsigned char)s[0])||!isdigit((unsigned char)s[1])||!isdigit((unsigned char)s[3])||!isdigit((unsigned char)s[4]))return 0;int h=(s[0]-'0')*10+(s[1]-'0'),m=(s[3]-'0')*10+(s[4]-'0');return h>=0&&h<24&&m>=0&&m<60;}
 static int night(json_object*d){if(!bval(d,"night_enabled",0))return 0;const char*start=sval(d,"night_start","22:00"),*end=sval(d,"night_end","08:00");if(!time_valid(start)||!time_valid(end))return 0;int sh,sm,eh,em;sscanf(start,"%d:%d",&sh,&sm);sscanf(end,"%d:%d",&eh,&em);time_t t=time(NULL);struct tm z;localtime_r(&t,&z);int n=z.tm_hour*60+z.tm_min,a=sh*60+sm,b=eh*60+em;return a<=b?(n>=a&&n<b):(n>=a||n<b);}
 static int whitelist_active(json_object*d){if(!bval(d,"whitelist_enabled",0))return 0;const char*start=sval(d,"whitelist_start","08:00"),*end=sval(d,"whitelist_end","22:00");if(!time_valid(start)||!time_valid(end))return 0;int sh,sm,eh,em;sscanf(start,"%d:%d",&sh,&sm);sscanf(end,"%d:%d",&eh,&em);time_t t=time(NULL);struct tm z;localtime_r(&t,&z);int n=z.tm_hour*60+z.tm_min,a=sh*60+sm,b=eh*60+em;return a<=b?(n>=a&&n<b):(n>=a||n<b);}
@@ -239,14 +240,24 @@ static int nft_apply(void){
     fprintf(f,"destroy table inet parental_control\nadd table inet parental_control\nadd chain inet parental_control pc_forward { type filter hook forward priority -5; policy accept; }\nadd chain inet parental_control pc_input { type filter hook input priority -5; policy accept; }\n");
     json_object*a=arr();
     for(int i=0;i<(int)json_object_array_length(a)&&i<128;i++){
-        json_object*d=json_object_array_get_idx(a,i);int block=is_blocked(d,i);const char*m=sval(d,"mac","");const char*id=sval(d,"id","");
+        json_object*d=json_object_array_get_idx(a,i);int block=is_blocked(d,i);const char*m=sval(d,"mac","");const char*id=sval(d,"id","");char device_ip[64];dhcp(d,device_ip,sizeof device_ip);struct in_addr device_ip4;int have_ip4=*device_ip&&inet_pton(AF_INET,device_ip,&device_ip4)==1;char device_ip6[8][INET6_ADDRSTRLEN];int ip6_count=ipv6_neighbors_for_mac(m,device_ip6,8);
         fprintf(f,"add rule inet parental_control pc_forward ether saddr %s counter comment \"pc:%s:out\"\n",m,id);
-        fprintf(f,"add rule inet parental_control pc_forward ether daddr %s counter comment \"pc:%s:in\"\n",m,id);
+        if(have_ip4)fprintf(f,"add rule inet parental_control pc_forward ip daddr %s counter comment \"pc:%s:in\"\n",device_ip,id);
+        for(int v6=0;v6<ip6_count;v6++)fprintf(f,"add rule inet parental_control pc_forward ip6 daddr %s counter comment \"pc:%s:in\"\n",device_ip6[v6],id);
+        if(!have_ip4&&!ip6_count)fprintf(f,"add rule inet parental_control pc_forward ether daddr %s counter comment \"pc:%s:in\"\n",m,id);
         if(block){
             json_object*wle=NULL;int wl=whitelist_active(d)&&json_object_object_get_ex(d,"whitelist_entries",&wle)&&json_object_is_type(wle,json_type_array)&&json_object_array_length(wle)>0;
             if(wl)nft_whitelist_rules(f,d,m,id);
             fprintf(f,"add rule inet parental_control pc_forward ether saddr %s drop comment \"pc:%s:forward-src\"\n",m,id);
-            fprintf(f,"add rule inet parental_control pc_forward ether daddr %s drop comment \"pc:%s:forward-dst\"\n",m,id);
+            if(have_ip4){
+                fprintf(f,"add rule inet parental_control pc_forward ip daddr %s drop comment \"pc:%s:forward-dst4\"\n",device_ip,id);
+            }
+            for(int v6=0;v6<ip6_count;v6++){
+                fprintf(f,"add rule inet parental_control pc_forward ip6 daddr %s drop comment \"pc:%s:forward-dst6\"\n",device_ip6[v6],id);
+            }
+            if(!have_ip4&&!ip6_count){
+                fprintf(f,"add rule inet parental_control pc_forward ether daddr %s drop comment \"pc:%s:forward-dst\"\n",m,id);
+            }
             fprintf(f,"add rule inet parental_control pc_input ether saddr %s udp dport 67 accept comment \"pc:%s:input-dhcp4\"\n",m,id);
             fprintf(f,"add rule inet parental_control pc_input ether saddr %s udp dport 547 accept comment \"pc:%s:input-dhcp6\"\n",m,id);
             if(wl){fprintf(f,"add rule inet parental_control pc_input ether saddr %s udp dport 53 accept comment \"pc:%s:input-dns-udp\"\n",m,id);fprintf(f,"add rule inet parental_control pc_input ether saddr %s tcp dport 53 accept comment \"pc:%s:input-dns-tcp\"\n",m,id);}
@@ -254,7 +265,17 @@ static int nft_apply(void){
         }else if(bval(d,"speed_limit_enabled",0)&&ival(d,"speed_limit_mbps",0)>0){
             int kbytes_per_sec=ival(d,"speed_limit_mbps",0)*125;
             fprintf(f,"add rule inet parental_control pc_forward ether saddr %s limit rate over %d kbytes/second drop comment \"pc:%s:speed-up\"\n",m,kbytes_per_sec,id);
-            fprintf(f,"add rule inet parental_control pc_forward ether daddr %s limit rate over %d kbytes/second drop comment \"pc:%s:speed-down\"\n",m,kbytes_per_sec,id);
+            if(have_ip4){
+                fprintf(f,"add rule inet parental_control pc_forward ip daddr %s limit rate over %d kbytes/second drop comment \"pc:%s:speed-down4\"\n",device_ip,kbytes_per_sec,id);
+            }
+            if(ip6_count){
+                fprintf(f,"add rule inet parental_control pc_forward ip6 daddr { ");
+                for(int v6=0;v6<ip6_count;v6++)fprintf(f,"%s%s",v6?", ":"",device_ip6[v6]);
+                fprintf(f," } limit rate over %d kbytes/second drop comment \"pc:%s:speed-down6\"\n",kbytes_per_sec,id);
+            }
+            if(!have_ip4&&!ip6_count){
+                fprintf(f,"add rule inet parental_control pc_forward ether daddr %s limit rate over %d kbytes/second drop comment \"pc:%s:speed-down\"\n",m,kbytes_per_sec,id);
+            }
         }
     }
     fclose(f);int rc=system("/usr/sbin/nft -f " NFT_RULES " >/dev/null 2>&1 || /usr/bin/nft -f " NFT_RULES " >/dev/null 2>&1");return rc;
