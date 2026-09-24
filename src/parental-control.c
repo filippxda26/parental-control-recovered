@@ -130,13 +130,13 @@ static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=monotonic_
         if(temporary_unblock[i]&&!automatic_blocked(d,i)){temporary_unblock[i]=0;changed=1;}int before=is_blocked(d,i),break_enabled=bval(d,"break_enabled",0),cycle=bval(d,"session_limit_enabled",0)&&break_enabled,active=0;
         if(!cycle&&session_seconds[i]){session_seconds[i]=0;changed=1;}
         if(!break_enabled&&(break_active[i]||brk_until[i]||brk_until_mono[i])){clear_break_state(i);changed=1;if(before)rules_changed=1;}
-        if(packet_activity){unsigned long long threshold=(unsigned long long)ival(d,"activity_threshold_bytes",4096);if(threshold<1)threshold=1;if(!before&&activity_bytes[i]>=threshold){active=1;last_active[i]=mono;}}
+        if(packet_activity){/* Packet capture sees background keepalives too. Require a real burst before starting/refreshing usage. */unsigned long long threshold=(unsigned long long)ival(d,"activity_threshold_bytes",4096);if(threshold<16384)threshold=16384;if(!before&&activity_bytes[i]>=threshold){active=1;last_active[i]=mono;}}
         else if(have){
             if(counters_seen[i]){int reset=inb[i]<previous_inbound[i]||outb[i]<previous_outbound[i];unsigned long long di=inb[i]>=previous_inbound[i]?inb[i]-previous_inbound[i]:inb[i]; unsigned long long do_=outb[i]>=previous_outbound[i]?outb[i]-previous_outbound[i]:outb[i]; unsigned long long threshold=(unsigned long long)ival(d,"activity_threshold_bytes",4096);if(threshold<1)threshold=1; /* A counter reset means nft rules were recreated while this device was passing traffic. Treat non-zero post-reset traffic as activity; otherwise use the per-device threshold. */ if(!before&&((reset&&(di+do_>0))||di+do_>=threshold)){active=1;last_active[i]=mono;}}
             else {counters_seen[i]=1;}
             previous_inbound[i]=inb[i]; previous_outbound[i]=outb[i]; changed=1;
         }
-        int idle=ival(d,"idle_timeout_seconds",300); if(!before&&!active&&last_active[i]&&idle>0&&mono-last_active[i]<=idle)active=1;
+        int idle=packet_activity?15:ival(d,"idle_timeout_seconds",300); if(!before&&!active&&last_active[i]&&idle>0&&mono-last_active[i]<=idle)active=1;
         if(!bval(d,"enabled",1))active=0;
         if(active&&!before){if(bval(d,"daily_limit_enabled",0)){used_seconds[i]+=dt;changed=1;}if(cycle&&!break_active[i]){session_seconds[i]+=dt;changed=1;int lim=ival(d,"session_limit_minutes",0)*60;if(lim>0&&session_seconds[i]>=lim){temporary_unblock[i]=0;start_break_state(i,ival(d,"break_minutes",0)*60);changed=rules_changed=1;}}}
         int after=is_blocked(d,i),wl=whitelist_ready(d),restricted=after||wl;if(after!=before||restricted!=blocked_cache[i]||wl!=whitelist_cache[i]){fprintf(stderr,"parental-control: nft refresh reason=state-change device_id=%s before=%d after=%d restricted=%d blocked_cache=%d whitelist=%d whitelist_cache=%d\n",sval(d,"id",""),before,after,restricted,blocked_cache[i],wl,whitelist_cache[i]);rules_changed=1;}if(wl&&!manual[i])whitelist_refresh_needed=1;
