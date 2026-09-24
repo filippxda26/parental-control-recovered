@@ -56,26 +56,35 @@ jobs:
 
 
       - name: Prepare APK signing key
-        if: github.event_name != 'pull_request'
         working-directory: sdk
         env:
           APK_PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
           APK_PRIVATE_KEY_B64: ${{ secrets.APK_PRIVATE_KEY_B64 }}
         run: |
+          umask 077
+
+          # Pull requests use a throw-away key so CI exercises the real signed
+          # package path without exposing repository secrets.
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            openssl ecparam -name prime256v1 -genkey -noout -out private-key.pem
+            openssl pkey -in private-key.pem -pubout -out public-key.pem
+            chmod 600 private-key.pem
+            chmod 644 public-key.pem
+            touch .parental-control-signing-enabled .parental-control-signing-test-key
+            echo "Ephemeral APK signing key prepared for CI."
+            exit 0
+          fi
+
           if [ -z "$APK_PRIVATE_KEY" ] && [ -z "$APK_PRIVATE_KEY_B64" ]; then
             echo "::notice::No APK signing key is configured; building an unsigned APK."
             exit 0
           fi
-
-          umask 077
 
           python3 - <<'PY'
           import base64
           import os
           from pathlib import Path
 
-          # Prefer APK_PRIVATE_KEY_B64 when present, but accept either variable
-          # as multiline PEM, escaped-newline PEM, or base64-encoded PEM.
           raw = (os.environ.get("APK_PRIVATE_KEY_B64") or os.environ.get("APK_PRIVATE_KEY") or "").strip()
 
           if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in {"'", '"'}:
@@ -88,8 +97,7 @@ jobs:
           if "-----BEGIN" not in raw:
               compact = "".join(raw.split())
               try:
-                  decoded = base64.b64decode(compact, validate=True)
-                  raw = decoded.decode("utf-8")
+                  raw = base64.b64decode(compact, validate=True).decode("utf-8")
               except Exception as exc:
                   raise SystemExit(
                       "Signing secret is not valid PEM or base64-encoded PEM. "
@@ -109,6 +117,36 @@ jobs:
           chmod 644 public-key.pem
           touch .parental-control-signing-enabled
           echo "APK signing key prepared."
+
+      - name: Enable per-package signing for OpenWrt 25.12.5
+        working-directory: sdk
+        run: |
+          if [ ! -f .parental-control-signing-enabled ]; then
+            echo "Per-package signing disabled for this build."
+            exit 0
+          fi
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("include/package-pack.mk")
+          lines = path.read_text(encoding="utf-8").splitlines()
+
+          matches = [i for i, line in enumerate(lines) if '--files "$$(IDIR_$(1))"' in line]
+          if len(matches) != 1:
+              raise SystemExit(f"Expected exactly one apk mkpkg --files line, found {len(matches)}")
+
+          i = matches[0]
+          if i + 1 < len(lines) and "--sign-key $(BUILD_KEY_APK_SEC)" in lines[i + 1]:
+              pass
+          else:
+              indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+              lines.insert(i + 1, indent + "--sign-key $(BUILD_KEY_APK_SEC) \\")
+
+          path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+          grep -F -- '--sign-key $(BUILD_KEY_APK_SEC)' include/package-pack.mk
 
       - name: Prepare libjson-c feed only
         working-directory: sdk
@@ -133,19 +171,11 @@ jobs:
           {
             echo 'CONFIG_PACKAGE_parental-control=m'
             echo 'CONFIG_USE_APK=y'
-            if [ -f .parental-control-signing-enabled ]; then
-              echo 'CONFIG_SIGN_EACH_PACKAGE=y'
-            else
-              echo '# CONFIG_SIGN_EACH_PACKAGE is not set'
-            fi
           } > .config
           make defconfig
 
-          grep -E '^(CONFIG_PACKAGE_parental-control|CONFIG_USE_APK=|CONFIG_SIGN_EACH_PACKAGE=|# CONFIG_SIGN_EACH_PACKAGE)' .config
+          grep -E '^(CONFIG_PACKAGE_parental-control|CONFIG_USE_APK=)' .config
           grep -qx 'CONFIG_USE_APK=y' .config
-          if [ -f .parental-control-signing-enabled ]; then
-            grep -qx 'CONFIG_SIGN_EACH_PACKAGE=y' .config
-          fi
 
       - name: Build APK
         working-directory: sdk
@@ -158,17 +188,34 @@ jobs:
           mkdir -p artifacts
           find sdk/bin -type f -name 'parental-control*.apk' -print -exec cp -v {} artifacts/ \;
           test -n "$(find artifacts -type f -name 'parental-control*.apk' -print -quit)"
+
           if [ -f sdk/.parental-control-signing-enabled ]; then
             test -s sdk/public-key.pem
             cp sdk/public-key.pem artifacts/parental-control-signing-public-key.pem
+
+            mkdir -p .apk-verify-root/etc/apk/keys
+            cp sdk/public-key.pem .apk-verify-root/etc/apk/keys/parental-control.pem
+            for package in artifacts/parental-control*.apk; do
+              sdk/staging_dir/host/bin/apk \
+                --root "$PWD/.apk-verify-root" \
+                --keys-dir /etc/apk/keys \
+                verify "$PWD/$package"
+            done
+
             {
               echo 'signed=true'
+              if [ -f sdk/.parental-control-signing-test-key ]; then
+                echo 'key=ephemeral-ci'
+              else
+                echo 'key=repository-secret'
+              fi
               printf 'public_key_sha256='
               openssl pkey -pubin -in sdk/public-key.pem -outform DER | sha256sum | awk '{print $1}'
             } > artifacts/SIGNING.txt
           else
             echo 'signed=false' > artifacts/SIGNING.txt
           fi
+
           ls -lh artifacts
           sha256sum artifacts/*.apk | tee artifacts/SHA256SUMS
 
