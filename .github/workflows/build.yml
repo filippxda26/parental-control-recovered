@@ -228,11 +228,16 @@ jobs:
         run: |
           APK="$(find artifacts -maxdepth 1 -type f -name 'parental-control*.apk' -print -quit)"
           test -n "$APK"
-          OUT="artifacts/parental-control-0.3.0-r19.apk"
+          VERSION="$(sed -n 's/^PKG_VERSION:=//p' openwrt-package/Makefile)"
+          RELEASE="$(sed -n 's/^PKG_RELEASE:=//p' openwrt-package/Makefile)"
+          test -n "$VERSION"
+          test -n "$RELEASE"
+          FULL_VERSION="${VERSION}-r${RELEASE}"
+          OUT="artifacts/parental-control-${FULL_VERSION}.apk"
           cp "$APK" "$OUT"
-          TAG="parental-control-0.3.0-r19"
+          TAG="parental-control-${FULL_VERSION}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$OUT" --clobber
           else
-            gh release create "$TAG" "$OUT" --title "parental-control 0.3.0-r19" --notes "Automatic OpenWrt APK build."
+            gh release create "$TAG" "$OUT" --title "parental-control ${FULL_VERSION}" --notes "Automatic OpenWrt APK build."
           fi
