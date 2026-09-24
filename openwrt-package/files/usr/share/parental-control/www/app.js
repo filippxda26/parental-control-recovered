@@ -182,9 +182,9 @@ function card(device){
   $('.dot',article).classList.toggle('offline',!device.ip);
   $('h3',article).textContent=device.name||'Без имени';
   const linked=device.linked_devices||[];
-  const hostText=[...new Set(linked.map(item=>item.hostname).filter(Boolean))].join(', ');
-  $('.host',article).textContent=hostText;
-  $('.host',article).hidden=!hostText;
+  const deviceCount=linked.length;
+  $('.host',article).textContent=deviceCount?(`${deviceCount} ${deviceCount===1?'подключённое устройство':'подключённых устройства'}`):'';
+  $('.host',article).hidden=!deviceCount;
   const ips=(linked.length?linked.map(item=>item.ip).filter(Boolean):(device.ips?.length?device.ips:[device.ip].filter(Boolean)));
   const macs=(linked.length?linked.map(item=>item.mac).filter(Boolean):(device.macs?.length?device.macs:[device.mac].filter(Boolean)));
   $('.ip',article).textContent=ips.length===1?`${ips[0]} · определён автоматически`:ips.length?`${ips.join(', ')} · определены автоматически`:'не определён · устройство не подключено';
@@ -349,6 +349,8 @@ addHost.className='secondary add-hostname';
 addHost.textContent='+ Добавить Hostname';
 hostList.after(addHost);
 const hostnameEnabled=form.elements.hostname_enabled;
+const hostnameToggleLabel=hostnameEnabled.closest('label');
+const hostnameEditorLabel=hostList.closest('label');
 function syncHostnameEnabled(){
   const enabled=hostnameEnabled.checked;
   hostList.querySelectorAll('input').forEach(input=>{input.disabled=!enabled;input.required=enabled});
@@ -389,6 +391,63 @@ const linkedBox=document.createElement('div');
 linkedBox.className='linked-devices';
 linkedBox.style.margin='8px 0 18px';
 macLabel.after(linkedBox);
+const macIpNote=macLabel.previousElementSibling;
+const macHelpNote=linkedBox.nextElementSibling;
+function showLegacyDeviceFields(show){
+  if(hostnameToggleLabel)hostnameToggleLabel.hidden=!show;
+  if(hostnameEditorLabel)hostnameEditorLabel.hidden=!show;
+  addHost.hidden=!show;
+  macLabel.hidden=!show;
+  if(macIpNote?.classList.contains('ip-note'))macIpNote.hidden=!show;
+  if(macHelpNote?.classList.contains('ip-note'))macHelpNote.hidden=!show;
+}
+
+function renumberLinkedDevices(){
+  [...linkedBox.querySelectorAll('.linked-device-row')].forEach((row,index)=>{
+    const number=row.querySelector('.linked-device-number');
+    if(number)number.textContent=`${index+1}.`;
+  });
+}
+
+function appendLinkedDeviceRow(item={}){
+  const row=document.createElement('div');
+  row.className='linked-device-row';
+  row.dataset.hostname=item.hostname||'';
+  row.dataset.mac=item.mac||'';
+  row.style.cssText='margin-top:12px;padding:10px 0;border-top:1px solid rgba(127,127,127,.25)';
+
+  const number=document.createElement('strong');
+  number.className='linked-device-number';
+  row.append(number);
+
+  if(item.hostname){
+    const hostname=document.createElement('div');
+    hostname.textContent=`Hostname: ${item.hostname}`;
+    hostname.style.marginTop='6px';
+    row.append(hostname);
+  }
+
+  const ip=document.createElement('div');
+  ip.textContent=`IP: ${item.ip||'не определён'}`;
+  ip.style.marginTop='4px';
+  row.append(ip);
+
+  const mac=document.createElement('div');
+  mac.textContent=`MAC: ${item.mac||'не определён'}`;
+  mac.style.marginTop='4px';
+  row.append(mac);
+
+  const remove=document.createElement('button');
+  remove.type='button';
+  remove.className='secondary';
+  remove.textContent='Удалить из профиля';
+  remove.style.marginTop='8px';
+  remove.onclick=()=>{row.remove();renumberLinkedDevices();};
+  row.append(remove);
+
+  linkedBox.append(row);
+  renumberLinkedDevices();
+}
 
 function renderLinkedDevices(device){
   linkedBox.replaceChildren();
@@ -405,50 +464,37 @@ function renderLinkedDevices(device){
     ? device.linked_devices
     : fallbackMacs.map((mac,index)=>({mac,ip:fallbackIps[index]||''})));
 
-  if(!linked.length){
+  if(linked.length)linked.forEach(appendLinkedDeviceRow);
+  else{
     const empty=document.createElement('div');
+    empty.className='linked-empty';
     empty.style.marginTop='8px';
     empty.textContent='Нет подключённых устройств';
     linkedBox.append(empty);
-    return;
   }
 
-  linked.forEach((item,index)=>{
-    const row=document.createElement('div');
-    row.dataset.mac=item.mac||'';
-    row.style.cssText='margin-top:12px;padding:10px 0;border-top:1px solid rgba(127,127,127,.25)';
-
-    const number=document.createElement('strong');
-    number.textContent=`${index+1}.`;
-    row.append(number);
-
-    if(item.hostname){
-      const hostname=document.createElement('div');
-      hostname.textContent=`Hostname: ${item.hostname}`;
-      hostname.style.marginTop='6px';
-      row.append(hostname);
+  const add=document.createElement('button');
+  add.type='button';
+  add.className='secondary';
+  add.style.marginTop='10px';
+  add.textContent='+ Добавить устройство по Hostname';
+  add.onclick=()=>{
+    if(linkedBox.querySelectorAll('.linked-device-row[data-hostname]').length>=16){
+      alert('Можно указать не больше 16 Hostname');
+      return;
     }
-
-    const ip=document.createElement('div');
-    ip.textContent=`IP: ${item.ip||'не определён'}`;
-    ip.style.marginTop='4px';
-    row.append(ip);
-
-    const mac=document.createElement('div');
-    mac.textContent=`MAC: ${item.mac||'—'}`;
-    mac.style.marginTop='4px';
-    row.append(mac);
-
-    const remove=document.createElement('button');
-    remove.type='button';
-    remove.className='secondary';
-    remove.textContent='Удалить из профиля';
-    remove.style.marginTop='8px';
-    remove.onclick=()=>row.remove();
-    row.append(remove);
-
-    linkedBox.append(row);
-  });
+    const value=prompt('Hostname устройства:','')?.trim();
+    if(!value)return;
+    if(!/^[A-Za-z0-9._-]{1,127}$/.test(value)){
+      alert('Некорректный Hostname');
+      return;
+    }
+    const exists=[...linkedBox.querySelectorAll('.linked-device-row')].some(row=>row.dataset.hostname.toLowerCase()===value.toLowerCase());
+    if(exists){alert('Такой Hostname уже добавлен');return;}
+    linkedBox.querySelector('.linked-empty')?.remove();
+    appendLinkedDeviceRow({hostname:value});
+  };
+  linkedBox.append(add);
 }
 
 const deleteDevice=document.createElement('button');
@@ -480,21 +526,18 @@ function openEditor(device=null){
   editing=device;
   form.reset();
   hostList.replaceChildren();
-  macLabel.hidden=!!device;
+  showLegacyDeviceFields(!device);
   renderLinkedDevices(device);
 
   if(device){
-    for(const key of ['name','mac','daily_limit_minutes','session_limit_minutes','break_minutes','speed_limit_mbps','night_start','night_end','whitelist_start','whitelist_end']){
+    for(const key of ['name','daily_limit_minutes','session_limit_minutes','break_minutes','speed_limit_mbps','night_start','night_end','whitelist_start','whitelist_end']){
       if(form.elements[key]&&device[key]!==undefined)form.elements[key].value=device[key];
     }
     for(const key of ['daily_limit_enabled','session_limit_enabled','break_enabled','night_enabled','speed_limit_enabled','whitelist_enabled']){
       form.elements[key].checked=!!device[key];
     }
     form.elements.whitelist_entries.value=(device.whitelist_entries||[]).join('\n');
-    const savedHostnames=(device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean);
-    hostnameEnabled.checked=savedHostnames.length>0;
-    savedHostnames.forEach(hostRow);
-    if(!hostList.children.length)hostRow();
+    hostnameEnabled.checked=false;
   }else{
     form.elements.daily_limit_enabled.checked=false;
     form.elements.session_limit_enabled.checked=true;
@@ -547,12 +590,18 @@ form.addEventListener('submit',async event=>{
   normalizeTime(form.elements.whitelist_end);
   if(!form.reportValidity())return;
 
-  const hostnames=hostnameEnabled.checked
-    ? [...hostList.querySelectorAll('input')].map(input=>input.value.trim()).filter(Boolean)
-    : [];
+  const hostnames=editing
+    ? [...linkedBox.querySelectorAll('.linked-device-row')].map(row=>row.dataset.hostname.trim()).filter(Boolean)
+    : hostnameEnabled.checked
+      ? [...hostList.querySelectorAll('input')].map(input=>input.value.trim()).filter(Boolean)
+      : [];
   const normalized=hostnames.map(host=>host.toLowerCase());
-  if(hostnameEnabled.checked&&(!hostnames.length||new Set(normalized).size!==hostnames.length)){
-    alert('Укажите хотя бы один уникальный Hostname или выключите использование Hostname');
+  if(new Set(normalized).size!==hostnames.length){
+    alert('Hostname не должны повторяться');
+    return;
+  }
+  if(!editing&&hostnameEnabled.checked&&!hostnames.length){
+    alert('Укажите хотя бы один Hostname или выключите использование Hostname');
     return;
   }
 
@@ -566,7 +615,7 @@ form.addEventListener('submit',async event=>{
     return;
   }
 
-  const connectedMacs=editing?[...linkedBox.querySelectorAll('[data-mac]')].map(row=>row.dataset.mac).filter(Boolean):[];
+  const connectedMacs=editing?[...new Set([...linkedBox.querySelectorAll('.linked-device-row')].map(row=>row.dataset.mac.trim().toLowerCase()).filter(Boolean))]:[];
   const primaryMac=editing?(connectedMacs[0]||''):form.elements.mac.value.trim().toLowerCase();
   const linkedMacs=editing?connectedMacs.slice(1):[];
   const body={
