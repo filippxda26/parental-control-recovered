@@ -129,6 +129,7 @@ function deviceUiSignature(device){
     hostname:device.hostname||'',
     hostnames:device.hostnames||[],
     mac:device.mac,
+    mac_auto:!!device.mac_auto,
     ip:device.ip||'',
     enabled:device.enabled!==false,
     blocked:!!device.blocked,
@@ -181,7 +182,7 @@ function card(device){
   $('.host',article).textContent=hostText;
   $('.host',article).hidden=!hostText;
   $('.ip',article).textContent=device.ip?`${device.ip} · определён автоматически`:'не определён · устройство не подключено';
-  $('.mac',article).textContent=device.mac||'—';
+  $('.mac',article).textContent=device.mac?`${device.mac}${device.mac_auto?' · определён автоматически':''}`:'—';
 
   const access=$('.access',article);
   if(!enabled){
