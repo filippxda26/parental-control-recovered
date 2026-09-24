@@ -131,6 +131,7 @@ function deviceUiSignature(device){
     mac:device.mac,
     macs:device.macs||[],
     ips:device.ips||[],
+    linked_devices:device.linked_devices||[],
     mac_auto:!!device.mac_auto,
     ip:device.ip||'',
     enabled:device.enabled!==false,
@@ -180,12 +181,14 @@ function card(device){
 
   $('.dot',article).classList.toggle('offline',!device.ip);
   $('h3',article).textContent=device.name||'Без имени';
-  const hostText=(device.hostnames?.length?device.hostnames:[device.hostname||'']).filter(Boolean).join(', ');
+  const linked=device.linked_devices||[];
+  const hostText=[...new Set(linked.map(item=>item.hostname).filter(Boolean))].join(', ');
   $('.host',article).textContent=hostText;
   $('.host',article).hidden=!hostText;
-  const ips=(device.ips?.length?device.ips:[device.ip].filter(Boolean));
-  $('.ip',article).textContent=ips.length?`${ips.join(', ')} · определены автоматически`:'не определён · устройство не подключено';
-  $('.mac',article).textContent=(device.macs?.length?device.macs:[device.mac].filter(Boolean)).join(', ')||'—';
+  const ips=(linked.length?linked.map(item=>item.ip).filter(Boolean):(device.ips?.length?device.ips:[device.ip].filter(Boolean)));
+  const macs=(linked.length?linked.map(item=>item.mac).filter(Boolean):(device.macs?.length?device.macs:[device.mac].filter(Boolean)));
+  $('.ip',article).textContent=ips.length===1?`${ips[0]} · определён автоматически`:ips.length?`${ips.join(', ')} · определены автоматически`:'не определён · устройство не подключено';
+  $('.mac',article).textContent=macs.join(', ')||'—';
 
   const access=$('.access',article);
   if(!enabled){
@@ -390,28 +393,60 @@ macLabel.after(linkedBox);
 function renderLinkedDevices(device){
   linkedBox.replaceChildren();
   if(!device){linkedBox.hidden=true;return;}
-  const macs=(device.macs?.length?device.macs:[device.mac].filter(Boolean));
-  const ips=device.ips||[];
-  if(macs.length<=1){linkedBox.hidden=true;return;}
   linkedBox.hidden=false;
+
   const title=document.createElement('strong');
   title.textContent='Подключённые устройства';
   linkedBox.append(title);
-  macs.forEach((mac,index)=>{
+
+  const fallbackMacs=(device.macs?.length?device.macs:[device.mac].filter(Boolean));
+  const fallbackIps=device.ips||[];
+  const linked=(device.linked_devices?.length
+    ? device.linked_devices
+    : fallbackMacs.map((mac,index)=>({mac,ip:fallbackIps[index]||''})));
+
+  if(!linked.length){
+    const empty=document.createElement('div');
+    empty.style.marginTop='8px';
+    empty.textContent='Нет подключённых устройств';
+    linkedBox.append(empty);
+    return;
+  }
+
+  linked.forEach((item,index)=>{
     const row=document.createElement('div');
-    row.style.cssText='display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:8px;flex-wrap:wrap';
-    const info=document.createElement('span');
-    info.textContent=`${index+1}. IP: ${ips[index]||'не определён'} · MAC: ${mac}`;
-    row.append(info);
-    if(index>0){
-      const remove=document.createElement('button');
-      remove.type='button';
-      remove.className='secondary';
-      remove.textContent='Удалить из профиля';
-      remove.onclick=()=>{row.remove();row.dataset.removed='1';};
-      row.dataset.mac=mac;
-      row.append(remove);
+    row.dataset.mac=item.mac||'';
+    row.style.cssText='margin-top:12px;padding:10px 0;border-top:1px solid rgba(127,127,127,.25)';
+
+    const number=document.createElement('strong');
+    number.textContent=`${index+1}.`;
+    row.append(number);
+
+    if(item.hostname){
+      const hostname=document.createElement('div');
+      hostname.textContent=`Hostname: ${item.hostname}`;
+      hostname.style.marginTop='6px';
+      row.append(hostname);
     }
+
+    const ip=document.createElement('div');
+    ip.textContent=`IP: ${item.ip||'не определён'}`;
+    ip.style.marginTop='4px';
+    row.append(ip);
+
+    const mac=document.createElement('div');
+    mac.textContent=`MAC: ${item.mac||'—'}`;
+    mac.style.marginTop='4px';
+    row.append(mac);
+
+    const remove=document.createElement('button');
+    remove.type='button';
+    remove.className='secondary';
+    remove.textContent='Удалить из профиля';
+    remove.style.marginTop='8px';
+    remove.onclick=()=>row.remove();
+    row.append(remove);
+
     linkedBox.append(row);
   });
 }
@@ -445,6 +480,7 @@ function openEditor(device=null){
   editing=device;
   form.reset();
   hostList.replaceChildren();
+  macLabel.hidden=!!device;
   renderLinkedDevices(device);
 
   if(device){
@@ -530,11 +566,13 @@ form.addEventListener('submit',async event=>{
     return;
   }
 
-  const keptLinked=editing?[...linkedBox.querySelectorAll('[data-mac]')].filter(row=>row.dataset.removed!=='1').map(row=>row.dataset.mac):[];
+  const connectedMacs=editing?[...linkedBox.querySelectorAll('[data-mac]')].map(row=>row.dataset.mac).filter(Boolean):[];
+  const primaryMac=editing?(connectedMacs[0]||''):form.elements.mac.value.trim().toLowerCase();
+  const linkedMacs=editing?connectedMacs.slice(1):[];
   const body={
     name:form.elements.name.value.trim(),
-    mac:form.elements.mac.value.trim().toLowerCase(),
-    linked_macs:keptLinked,
+    mac:primaryMac,
+    linked_macs:linkedMacs,
     hostnames,
     daily_limit_enabled:form.elements.daily_limit_enabled.checked,
     session_limit_enabled:form.elements.session_limit_enabled.checked,
