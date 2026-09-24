@@ -125,7 +125,7 @@ static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=monotonic_
         if(!cycle&&session_seconds[i]){session_seconds[i]=0;changed=1;}
         if(!break_enabled&&(break_active[i]||brk_until[i]||brk_until_mono[i])){clear_break_state(i);changed=1;if(before)rules_changed=1;}
         if(have){
-            if(counters_seen[i]){unsigned long long di=inb[i]>=previous_inbound[i]?inb[i]-previous_inbound[i]:inb[i]; unsigned long long do_=outb[i]>=previous_outbound[i]?outb[i]-previous_outbound[i]:outb[i]; /* Ignore tiny background chatter (push/keepalive/DNS). Count the device as actively used only when at least 8 KiB moved since the previous tick. */ if(!before&&di+do_>=8192){active=1;last_active[i]=mono;}}
+            if(counters_seen[i]){int reset=inb[i]<previous_inbound[i]||outb[i]<previous_outbound[i];unsigned long long di=inb[i]>=previous_inbound[i]?inb[i]-previous_inbound[i]:inb[i]; unsigned long long do_=outb[i]>=previous_outbound[i]?outb[i]-previous_outbound[i]:outb[i]; unsigned long long threshold=(unsigned long long)ival(d,"activity_threshold_bytes",4096);if(threshold<1)threshold=1; /* A counter reset means nft rules were recreated while this device was passing traffic. Treat non-zero post-reset traffic as activity; otherwise use the per-device threshold. */ if(!before&&((reset&&(di+do_>0))||di+do_>=threshold)){active=1;last_active[i]=mono;}}
             else {counters_seen[i]=1;}
             previous_inbound[i]=inb[i]; previous_outbound[i]=outb[i]; changed=1;
         }
