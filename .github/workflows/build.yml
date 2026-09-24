@@ -60,16 +60,48 @@ jobs:
         working-directory: sdk
         env:
           APK_PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
+          APK_PRIVATE_KEY_B64: ${{ secrets.APK_PRIVATE_KEY_B64 }}
         run: |
-          if [ -z "$APK_PRIVATE_KEY" ]; then
-            echo "::notice::APK_PRIVATE_KEY is not configured; building an unsigned APK."
+          if [ -z "$APK_PRIVATE_KEY" ] && [ -z "$APK_PRIVATE_KEY_B64" ]; then
+            echo "::notice::No APK signing key is configured; building an unsigned APK."
             exit 0
           fi
+
           umask 077
-          printf '%s\n' "$APK_PRIVATE_KEY" > private-key.pem
-          openssl ec -in private-key.pem -check -noout
-          openssl ec -in private-key.pem -pubout -out public-key.pem
+
+          if [ -n "$APK_PRIVATE_KEY_B64" ]; then
+            printf '%s' "$APK_PRIVATE_KEY_B64" | tr -d '\r\n ' | base64 -d > private-key.pem
+          else
+            python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          raw = os.environ["APK_PRIVATE_KEY"].strip()
+
+          # Accept a secret pasted with surrounding quotes.
+          if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in {"'", '"'}:
+              raw = raw[1:-1].strip()
+
+          # Normalize Windows line endings and secrets pasted as one line with literal \n.
+          raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+          if "-----BEGIN" in raw and "\\n" in raw:
+              raw = raw.replace("\\n", "\n")
+
+          # Also accept base64-encoded PEM in APK_PRIVATE_KEY itself.
+          if "-----BEGIN" not in raw:
+              try:
+                  raw = base64.b64decode("".join(raw.split()), validate=True).decode("utf-8")
+              except Exception as exc:
+                  raise SystemExit(f"APK_PRIVATE_KEY is neither PEM nor valid base64 PEM: {exc}")
+
+          Path("private-key.pem").write_text(raw.strip() + "\n", encoding="utf-8", newline="\n")
+          PY
+          fi
+
           chmod 600 private-key.pem
+          openssl pkey -in private-key.pem -check -noout
+          openssl pkey -in private-key.pem -pubout -out public-key.pem
           chmod 644 public-key.pem
           touch .parental-control-signing-enabled
           echo "APK signing key prepared."
