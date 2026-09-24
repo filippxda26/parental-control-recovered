@@ -197,7 +197,9 @@ static void state_device(json_object*out,json_object*d,int i){
     int daily_limit=ival(d,"daily_limit_minutes",0)*60+(int)bonus_minutes[i]*60;
     int dl=bval(d,"daily_limit_enabled",0)&&daily_limit>0&&used_seconds[i]>=daily_limit;
     int enabled=bval(d,"enabled",1),hard_blocked=is_blocked(d,i),wl_enforced=whitelist_ready(d)&&!manual[i],blocked=hard_blocked||wl_enforced;
+    int cycle=bval(d,"session_limit_enabled",0)&&bval(d,"break_enabled",0),idle_timeout=ival(d,"idle_timeout_seconds",300);time_t activity_now=monotonic_now();long long since_traffic=last_active[i]>0?(long long)(activity_now-last_active[i]):-1;int traffic_idle=enabled&&cycle&&!ba&&!blocked&&(last_active[i]<=0||(idle_timeout>0?since_traffic>idle_timeout:since_traffic>1));
     json_object_object_add(out,"whitelist_enforced",json_object_new_boolean(wl_enforced));
+    json_object_object_add(out,"traffic_idle",json_object_new_boolean(traffic_idle));
     long long session_limit=(long long)ival(d,"session_limit_minutes",60)*60;
     long long session_remaining=session_limit-session_seconds[i];if(session_remaining<0)session_remaining=0;
     long long daily_remaining=(long long)daily_limit-used_seconds[i];if(daily_remaining<0)daily_remaining=0;
