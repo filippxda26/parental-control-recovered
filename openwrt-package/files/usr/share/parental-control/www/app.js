@@ -234,6 +234,8 @@ function card(device){
   const access=$('.access',article);
   const accessRow=access.closest('div');
   if(accessRow){
+    const accessLabel=accessRow.querySelector('dt');
+    if(accessLabel)accessLabel.textContent='Доступ:';
     accessRow.style.display='flex';
     accessRow.style.alignItems='baseline';
     accessRow.style.gap='6px';
