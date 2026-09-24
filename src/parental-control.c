@@ -110,14 +110,14 @@ static int read_nft_counters(unsigned long long *inb,unsigned long long *outb){
         char *bp=strstr(line," bytes "); if(!bp) continue; unsigned long long bytes=strtoull(bp+7,NULL,10);
         c+=12; char *e=strchr(c,'\"'); if(!e)continue; *e=0; char *dir=strrchr(c,':'); if(!dir)continue; *dir++=0;
         int i=findid(c); if(i<0)continue; if(!strcmp(dir,"in"))inb[i]+=bytes; else if(!strcmp(dir,"out"))outb[i]+=bytes; else continue; found=1;
-    } int rc=pclose(f);if(rc!=0)return-1;return found;
+    } int rc=pclose(f);fprintf(stderr,"parental-control: nft read rc=%d found=%d\n",rc,found);if(rc!=0)return-1;return found;
 }
 static int automatic_blocked(json_object*d,int i){if(!bval(d,"enabled",1))return 0;long long lim=(long long)ival(d,"daily_limit_minutes",0)*60+bonus_minutes[i]*60;return night(d)||(bval(d,"break_enabled",0)&&break_left(i)>0)||(bval(d,"daily_limit_enabled",0)&&lim>0&&used_seconds[i]>=lim);}
 static int is_blocked(json_object*d,int i){if(!bval(d,"enabled",1))return 0;return manual[i]||(!temporary_unblock[i]&&automatic_blocked(d,i));}
 static void tick(void){static time_t last_dhcp_sync=0;time_t now_sync=monotonic_now();if(now_sync-last_dhcp_sync>=2){sync_dhcp_macs();last_dhcp_sync=now_sync;}
     static time_t last_mono=0; time_t mono=monotonic_now(); if(!last_mono){last_mono=mono;return;} int dt=(int)(mono-last_mono); if(dt<1)return; if(dt>60)dt=1; last_mono=mono;
     char today[16]; date_now(today); if(strcmp(today,reset_date))reset_today_all();
-    unsigned long long inb[128],outb[128]; int have=read_nft_counters(inb,outb); json_object*a=arr(); int changed=0, rules_changed=0, whitelist_refresh_needed=0;
+    unsigned long long inb[128],outb[128]; int have=read_nft_counters(inb,outb); json_object*a=arr();for(int di=0;di<(int)json_object_array_length(a)&&di<128;di++)fprintf(stderr,"parental-control: nft sample device_id=%s have=%d seen=%d in=%llu out=%llu prev_in=%llu prev_out=%llu\n",sval(json_object_array_get_idx(a,di),"id",""),have,counters_seen[di],inb[di],outb[di],previous_inbound[di],previous_outbound[di]); int changed=0, rules_changed=0, whitelist_refresh_needed=0;
     if(have<0){nft_dirty=1;have=0;}
     for(int i=0;i<(int)json_object_array_length(a)&&i<128;i++){
         json_object*d=json_object_array_get_idx(a,i); if(break_active[i]&&break_left(i)<=0){clear_break_state(i);session_seconds[i]=0;changed=rules_changed=1;}
