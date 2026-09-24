@@ -21,7 +21,7 @@
 #define STATE "/var/lib/parental-control/state.json"
 #define HISTORY "/var/lib/parental-control/history.json"
 #define NFT_RULES "/var/run/parental-control.nft"
-static json_object *arr(void); static json_object *okmsg(const char*); static int sync_dhcp_macs(void); static const char *sval(json_object*,const char*,const char*); static int ival(json_object*,const char*,int); static int bval(json_object*,const char*,int); static int findid(const char*); static int mac_valid(const char*); static void dhcp(json_object*,char*,size_t); static int night(json_object*); static int whitelist_active(json_object*); static int nft_apply(void); static int nft_commit(void); static void state_device(json_object*,json_object*,int); static json_object *state_snapshot(void);
+static json_object *arr(void); static json_object *okmsg(const char*); static int sync_dhcp_macs(void); static const char *sval(json_object*,const char*,const char*); static int ival(json_object*,const char*,int); static int bval(json_object*,const char*,int); static int findid(const char*); static int mac_valid(const char*); static void dhcp(json_object*,char*,size_t); static int night(json_object*); static int whitelist_active(json_object*); static int whitelist_ready(json_object*); static int nft_apply(void); static int nft_commit(void); static void state_device(json_object*,json_object*,int); static json_object *state_snapshot(void);
 static json_object *root; static int manual[128],break_active[128],temporary_unblock[128]; static time_t brk_until[128],brk_until_mono[128];
 static long long used_seconds[128], session_seconds[128], bonus_minutes[128];
 static unsigned long long previous_inbound[128], previous_outbound[128];
