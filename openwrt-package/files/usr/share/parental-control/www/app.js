@@ -394,12 +394,13 @@ macLabel.after(linkedBox);
 const macIpNote=macLabel.previousElementSibling;
 const macHelpNote=linkedBox.nextElementSibling;
 function showLegacyDeviceFields(show){
-  if(hostnameToggleLabel)hostnameToggleLabel.hidden=!show;
-  if(hostnameEditorLabel)hostnameEditorLabel.hidden=!show;
-  addHost.hidden=!show;
-  macLabel.hidden=!show;
-  if(macIpNote?.classList.contains('ip-note'))macIpNote.hidden=!show;
-  if(macHelpNote?.classList.contains('ip-note'))macHelpNote.hidden=!show;
+  const display=show?'':'none';
+  if(hostnameToggleLabel)hostnameToggleLabel.style.display=display;
+  if(hostnameEditorLabel)hostnameEditorLabel.style.display=display;
+  addHost.style.display=display;
+  macLabel.style.display=display;
+  if(macIpNote?.classList.contains('ip-note'))macIpNote.style.display=display;
+  if(macHelpNote?.classList.contains('ip-note'))macHelpNote.style.display=display;
 }
 
 function renumberLinkedDevices(){
