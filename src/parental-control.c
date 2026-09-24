@@ -243,7 +243,7 @@ static json_object *state_snapshot(void){
     }
     json_object_object_add(j,"devices",ds);
     json_object_object_add(j,"state_timestamp",json_object_new_int64(time(NULL)));
-    if(connect_seen&&time(NULL)-connect_seen<=300){char live_mac[32]={0};if(arp_mac_for_ip(connect_ip,live_mac,sizeof live_mac)&&!strcasecmp(live_mac,connect_mac)){json_object*cc=json_object_new_object();json_object_object_add(cc,"ip",json_object_new_string(connect_ip));json_object_object_add(cc,"mac",json_object_new_string(connect_mac));json_object_object_add(cc,"seen_at",json_object_new_int64(connect_seen));json_object_object_add(j,"connect_candidate",cc);}else{connect_seen=0;connect_ip[0]=0;connect_mac[0]=0;}}
+    if(connect_seen&&time(NULL)-connect_seen<=15){char live_mac[32]={0};if(arp_mac_for_ip(connect_ip,live_mac,sizeof live_mac)&&!strcasecmp(live_mac,connect_mac)){json_object*cc=json_object_new_object();json_object_object_add(cc,"ip",json_object_new_string(connect_ip));json_object_object_add(cc,"mac",json_object_new_string(connect_mac));json_object_object_add(cc,"seen_at",json_object_new_int64(connect_seen));json_object_object_add(j,"connect_candidate",cc);}else{connect_seen=0;connect_ip[0]=0;connect_mac[0]=0;}}else if(connect_seen){connect_seen=0;connect_ip[0]=0;connect_mac[0]=0;}
     return j;
 }
 static int nft_apply(void){
