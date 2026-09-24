@@ -1,6 +1,6 @@
 const $=(selector,root=document)=>root.querySelector(selector);
 const devices=$('#devices'),dialog=$('#editor'),form=$('#form');
-let socket=null,socketPromise=null,socketSeq=1,reconnectTimer=null,editing=null,latest=[];
+let socket=null,socketPromise=null,socketSeq=1,reconnectTimer=null,editing=null,latest=[],pairingCandidate=null;
 
 function socketUrl(){
   return `${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`;
@@ -315,16 +315,8 @@ function renderState(data){
   $('#service').textContent='Служба работает';
   const pairing=$('#pairing'),candidate=data.connect_candidate;
   pairing.hidden=!candidate;
-  if(candidate){
-    $('#pairing-info').textContent=`IP ${candidate.ip||'—'} · MAC ${candidate.mac||'—'}`;
-    $('#pairing-add').onclick=event=>{
-      event.preventDefault();
-      if(!candidate.mac){alert('MAC устройства ещё не определён. Откройте /connect на устройстве ещё раз.');return;}
-      openPairingCandidate(candidate);
-    };
-  }else{
-    $('#pairing-add').onclick=null;
-  }
+  pairingCandidate=candidate||null;
+  if(candidate)$('#pairing-info').textContent=`IP ${candidate.ip||'—'} · MAC ${candidate.mac||'—'}`;
 }
 
 async function refresh(){
@@ -413,6 +405,13 @@ function closeEditor(){
   editing=null;
   if(dialog.open)dialog.close();
 }
+
+$('#pairing-add').addEventListener('click',()=>{
+  const candidate=pairingCandidate;
+  if(!candidate){alert('Устройство больше не найдено. Откройте /connect ещё раз.');return;}
+  if(!candidate.mac){alert('MAC устройства ещё не определён. Откройте /connect на устройстве ещё раз.');return;}
+  openPairingCandidate(candidate);
+});
 
 function openPairingCandidate(candidate){
   openEditor();
