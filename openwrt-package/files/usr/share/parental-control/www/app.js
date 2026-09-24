@@ -232,6 +232,13 @@ function card(device){
   }
 
   const access=$('.access',article);
+  const accessRow=access.closest('div');
+  if(accessRow){
+    accessRow.style.display='flex';
+    accessRow.style.alignItems='baseline';
+    accessRow.style.gap='6px';
+    accessRow.style.gridColumn='1 / -1';
+  }
   if(!enabled){
     access.textContent='Контроль отключён';
     access.className='access';
@@ -260,6 +267,8 @@ function card(device){
   const reasons=reasonLabels(device);
   if(reasons.length){
     const reason=usageLine('block-reason',reasons.length===1?`Причина: ${reasons[0]}`:`Причины: ${reasons.join(', ')}`);
+    dl.style.marginBottom='4px';
+    reason.style.marginTop='0';
     dl.after(reason);
   }
 
