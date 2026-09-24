@@ -313,6 +313,12 @@ function renderState(data){
   $('#count-online').textContent=latest.filter(device=>device.ip).length;
   $('#count-blocked').textContent=latest.filter(device=>device.blocked).length;
   $('#service').textContent='Служба работает';
+  const pairing=$('#pairing'),candidate=data.connect_candidate;
+  pairing.hidden=!candidate;
+  if(candidate){
+    $('#pairing-info').textContent=`IP ${candidate.ip} · MAC ${candidate.mac}`;
+    $('#pairing-add').onclick=()=>openPairingCandidate(candidate);
+  }
 }
 
 async function refresh(){
@@ -400,6 +406,14 @@ function closeEditor(){
   hostList.replaceChildren();
   editing=null;
   if(dialog.open)dialog.close();
+}
+
+function openPairingCandidate(candidate){
+  openEditor();
+  form.elements.name.value='Люба';
+  form.elements.mac.value=candidate.mac||'';
+  hostnameEnabled.checked=false;
+  syncHostnameEnabled();
 }
 
 function openEditor(device=null){
