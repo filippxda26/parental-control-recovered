@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=parental-control
 PKG_VERSION:=0.3.0
-PKG_RELEASE:=19
+PKG_RELEASE:=20
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk
@@ -29,16 +29,13 @@ define Build/Prepare
 endef
 
 define Build/Compile
-	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Wextra -Werror $(TARGET_LDFLAGS) -o $(PKG_BUILD_DIR)/parental-control $(PKG_BUILD_DIR)/parental-control.c -ljson-c
-	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Wextra -Werror $(TARGET_LDFLAGS) -o $(PKG_BUILD_DIR)/parental-control-web $(PKG_BUILD_DIR)/parental-control-web.c -ljson-c
+	$(TARGET_CC) $(TARGET_CFLAGS) -Wall -Wextra -Werror $(TARGET_LDFLAGS) -o $(PKG_BUILD_DIR)/parental-control $(PKG_BUILD_DIR)/parental-control.c $(PKG_BUILD_DIR)/parental-control-web.c -ljson-c -pthread
 endef
 
 define Package/parental-control/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/etc/init.d $(1)/etc/parental-control $(1)/usr/share/parental-control/www
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/parental-control $(1)/usr/sbin/
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/parental-control-web $(1)/usr/sbin/
 	$(INSTALL_BIN) ./files/etc/init.d/parental-control $(1)/etc/init.d/
-	$(INSTALL_BIN) ./files/etc/init.d/parental-control-web $(1)/etc/init.d/
 	$(INSTALL_CONF) ./files/etc/parental-control/settings.json $(1)/etc/parental-control/
 	$(INSTALL_CONF) ./files/etc/parental-control/devices.default.json $(1)/etc/parental-control/devices.json
 	$(INSTALL_CONF) ./files/etc/parental-control/devices.example.json $(1)/etc/parental-control/devices.example.json
