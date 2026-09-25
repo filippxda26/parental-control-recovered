@@ -269,7 +269,7 @@ function card(device){
   const reasons=reasonLabels(device);
   if(reasons.length){
     const reason=usageLine('block-reason',reasons.length===1?`Причина: ${reasons[0]}`:`Причины: ${reasons.join(', ')}`);
-    dl.style.marginBottom='4px';
+    dl.style.marginBottom='0';
     reason.style.marginTop='0';
     dl.after(reason);
   }
