@@ -235,10 +235,13 @@ function card(device){
   const accessRow=access.closest('div');
   const accessLine=document.createElement('div');
   accessLine.className='access-line';
-  accessLine.style.cssText='display:flex;align-items:baseline;gap:4px;margin:14px 0 0';
+  accessLine.style.cssText='display:flex;align-items:baseline;gap:4px;margin:14px 0 0;grid-column:1 / -1;white-space:nowrap';
   const accessLabel=document.createElement('span');
   accessLabel.textContent='Доступ:';
   accessLabel.style.color='var(--muted)';
+  access.style.flex='0 0 auto';
+  access.style.whiteSpace='nowrap';
+  access.style.overflowWrap='normal';
   accessLine.append(accessLabel,access);
   if(accessRow)accessRow.replaceWith(accessLine);
   if(!enabled){
