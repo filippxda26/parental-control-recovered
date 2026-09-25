@@ -233,14 +233,14 @@ function card(device){
 
   const access=$('.access',article);
   const accessRow=access.closest('div');
-  if(accessRow){
-    const accessLabel=accessRow.querySelector('dt');
-    if(accessLabel)accessLabel.textContent='Доступ:';
-    accessRow.style.display='flex';
-    accessRow.style.alignItems='baseline';
-    accessRow.style.gap='6px';
-    accessRow.style.gridColumn='1 / -1';
-  }
+  const accessLine=document.createElement('div');
+  accessLine.className='access-line';
+  accessLine.style.cssText='display:flex;align-items:baseline;gap:4px;margin:14px 0 0';
+  const accessLabel=document.createElement('span');
+  accessLabel.textContent='Доступ:';
+  accessLabel.style.color='var(--muted)';
+  accessLine.append(accessLabel,access);
+  if(accessRow)accessRow.replaceWith(accessLine);
   if(!enabled){
     access.textContent='Контроль отключён';
     access.className='access';
